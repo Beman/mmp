@@ -58,7 +58,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>"$(TargetDir)\$(TargetName).exe"  -x</Command>
+      <Command>"$(TargetDir)\$(TargetName).exe"  --in ../../smoke_test.html --out ../../smoke_test_output.html</Command>
     </PostBuildEvent>
     <PostBuildEvent>
       <Message>Executing test $(TargetName).exe...</Message>
