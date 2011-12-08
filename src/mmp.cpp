@@ -213,30 +213,6 @@ namespace
     return s;
   }
 
-//-----------------------------------  command  ----------------------------------------//
-
-  bool command()  // true if succeeds
-  // postcondition: if true, state.top().cur updated to position past the command 
-  {
-    if (std::memcmp(&*state.top().cur, state.top().start_marker.c_str(),
-      state.top().start_marker.size()) == 0)
-    {
-      // start_marker is present, so check for commands
-      const char* p = &*state.top().cur + state.top().start_marker.size();
-      if (std::memcmp(p, def_command, sizeof(def_command)-1) == 0
-        && std::isspace(*(p+sizeof(def_command)-1)))
-      {
-        std::advance(state.top().cur, state.top().start_marker.size()
-          + (sizeof(def_command)-1));
-        string macro_name(simple_string());
-        string macro_body(any_string());
-        macros.insert(std::make_pair(macro_name, macro_body));
-        return true;
-      }
-    }
-    return false;
-  }
-
 //------------------------------------  macro  -----------------------------------------//
 
   bool macro()  // true if succeeds
@@ -252,6 +228,39 @@ namespace
       cout << "Error: macro not found: " << macro_name << '\n';
     }
     out << it->second;
+    return true;
+  }
+
+//-----------------------------------  command  ----------------------------------------//
+
+  bool command()  // true if succeeds
+  // postcondition: if true, state.top().cur updated to position past the command 
+  {
+    if (std::memcmp(&*state.top().cur, state.top().start_marker.c_str(),
+        state.top().start_marker.size()) != 0)
+      return false;
+
+    // start_marker is present, so check for commands
+    const char* p = &*state.top().cur + state.top().start_marker.size();
+
+    // def[ine] macro command
+    if (std::memcmp(p, def_command, sizeof(def_command)-1) == 0
+      && std::isspace(*(p+sizeof(def_command)-1)))
+    {
+      std::advance(state.top().cur, state.top().start_marker.size()
+        + (sizeof(def_command)-1));
+      string macro_name(simple_string());
+      string macro_body(any_string());
+      macros.insert(std::make_pair(macro_name, macro_body));
+    }
+    else  // false alarm
+      return false;
+
+    // bypass trailing whitespace; this has the effect of avoiding the output of
+    // spurious whitespace such as a newline at the end of a command
+    for (;state.top().cur != state.top().end && std::isspace(*state.top().cur);
+      ++state.top().cur) {} 
+
     return true;
   }
 
