@@ -1,0 +1,7 @@
+$def MY_MACRO "this is my macro"
+here is
+some text. $MY_MACRO.
+$def MULTILINE "This one
+continues onto a second line"
+OK, let's try $MULTILINE.
+That's all folks!

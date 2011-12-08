@@ -20,6 +20,7 @@ using std::string;
     TODO List
 
     *  command() for def should check macro doesn't already exist.
+    *  Count newlines so error message can give line number.
 
 */
 
@@ -33,6 +34,7 @@ namespace
 
   const string    default_start_marker("$");
   string          in_file_start_marker("$");
+  const string    default_macro_marker("$");
   const char      def_command[] = "def";
   const char      include_command[] = "include";
 
@@ -44,8 +46,9 @@ namespace
     string                  content;
     string::const_iterator  cur;           // current position
     string::const_iterator  end;           // past-the-end
-    string                  start_marker;  // start marker; never empty()
-    string                  end_marker;    // end marker; may be empty()
+    string                  start_marker;  // command start marker; never empty()
+    string                  end_marker;    // command end marker; may be empty()
+    string                  macro_marker;  // macro marker; never empty()
   };
 
   typedef std::stack<context, std::vector<context> > stack_type;
@@ -53,6 +56,8 @@ namespace
 
   typedef std::map<string, string> macro_map;
   macro_map macros;
+
+  const bool lookahead = true;
 
 //-----------------------------------  load_file  --------------------------------------//
 
@@ -72,7 +77,9 @@ namespace
 
   bool new_context(const string& path,
     const string& start_marker = default_start_marker,
-    const string& end_marker = string())  // true if succeeds
+    const string& end_marker = string(),
+    const string& macro_marker = default_macro_marker
+    )  // true if succeeds
   {
     state.push(context());
     if (!load_file(path, state.top().content))
@@ -85,6 +92,7 @@ namespace
     state.top().end = state.top().content.cend();
     state.top().start_marker = start_marker;
     state.top().end_marker = end_marker;
+    state.top().macro_marker = macro_marker;
     return true;
   }
 
@@ -126,22 +134,47 @@ namespace
     return ok;
   }
 
-//---------------------------------  simple_string  ------------------------------------//
+//-------------------------------------  name  -----------------------------------------//
 
-  string simple_string()
+  string name(bool lookahead_=false)
   {
     string s;
-
-    // bypass leading whitespace
-    for (;state.top().cur != state.top().end && std::isspace(*state.top().cur);
-      ++state.top().cur) {} 
+    string::const_iterator it(state.top().cur);
 
     // store string
-    for (;state.top().cur != state.top().end && !std::isspace(*state.top().cur);
-      ++state.top().cur)
+    for (;it != state.top().end &&
+      (std::isalnum(*it) || *it == '_');
+      ++it)
     {
-      s += *state.top().cur;
+      s += *it;
     }
+
+    if (!lookahead_)
+      state.top().cur = it;
+
+    return s;
+  }
+
+//---------------------------------  simple_string  ------------------------------------//
+
+  string simple_string(bool lookahead_=false)
+  {
+    string s;
+    string::const_iterator it(state.top().cur);
+
+    // bypass leading whitespace
+    for (;it != state.top().end && std::isspace(*it);
+      ++it) {} 
+
+    // store string
+    for (;it != state.top().end && !std::isspace(*it);
+      ++it)
+    {
+      s += *it;
+    }
+
+    if (!lookahead_)
+      state.top().cur = it;
 
     return s;
   }
@@ -180,13 +213,6 @@ namespace
     return s;
   }
 
-//------------------------------------  macro  -----------------------------------------//
-
-  bool macro()  // true if succeeds
-  {
-    return false;
-  }
-
 //-----------------------------------  command  ----------------------------------------//
 
   bool command()  // true if succeeds
@@ -205,9 +231,28 @@ namespace
         string macro_name(simple_string());
         string macro_body(any_string());
         macros.insert(std::make_pair(macro_name, macro_body));
+        return true;
       }
     }
     return false;
+  }
+
+//------------------------------------  macro  -----------------------------------------//
+
+  bool macro()  // true if succeeds
+  {
+    if (std::memcmp(&*state.top().cur, state.top().macro_marker.c_str(),
+        state.top().macro_marker.size()) != 0)
+      return false;
+    std::advance(state.top().cur, state.top().macro_marker.size()); 
+    string macro_name(name());
+    macro_map::const_iterator it = macros.find(macro_name);
+    if (it == macros.end())
+    {
+      cout << "Error: macro not found: " << macro_name << '\n';
+    }
+    out << it->second;
+    return true;
   }
 
 //---------------------------------  process_state  ------------------------------------//
@@ -218,8 +263,10 @@ namespace
 
     for(; state.top().cur != state.top().end;)
     {
-      if (macro()) continue;
-      if (command()) continue;
+      if (command())
+        continue;
+      if (macro())
+        continue;
       out << *state.top().cur;
       ++state.top().cur;
     }
