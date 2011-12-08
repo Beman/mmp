@@ -5,22 +5,36 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <cstring>
+#include <cctype>
 #include <vector>
 #include <stack>
+#include <map>
 
 using std::cout;
 using std::endl;
 using std::string;
 
+/*
+
+    TODO List
+
+    *  command() for def should check macro doesn't already exist.
+
+*/
+
 //--------------------------------------------------------------------------------------//
 
 namespace
 {
-  string               in_path;
-  string               out_path;
-  bool                 verbose;
-  const string         default_start_marker("$");
-  const string         in_file_start_marker("$");
+  string          in_path;
+  string          out_path;
+  bool            verbose;
+
+  const string    default_start_marker("$");
+  string          in_file_start_marker("$");
+  const char      def_command[] = "def";
+  const char      include_command[] = "include";
 
   std::ofstream        out;
 
@@ -35,9 +49,10 @@ namespace
   };
 
   typedef std::stack<context, std::vector<context> > stack_type;
-
   stack_type state;  // context stack
 
+  typedef std::map<string, string> macro_map;
+  macro_map macros;
 
 //-----------------------------------  load_file  --------------------------------------//
 
@@ -111,6 +126,60 @@ namespace
     return ok;
   }
 
+//---------------------------------  simple_string  ------------------------------------//
+
+  string simple_string()
+  {
+    string s;
+
+    // bypass leading whitespace
+    for (;state.top().cur != state.top().end && std::isspace(*state.top().cur);
+      ++state.top().cur) {} 
+
+    // store string
+    for (;state.top().cur != state.top().end && !std::isspace(*state.top().cur);
+      ++state.top().cur)
+    {
+      s += *state.top().cur;
+    }
+
+    return s;
+  }
+
+//---------------------------------  any_string  ---------------------------------------//
+
+  string any_string()
+  {
+    // bypass leading whitespace
+    for (;state.top().cur != state.top().end && std::isspace(*state.top().cur);
+      ++state.top().cur) {} 
+
+    if (*state.top().cur != '"')
+      return simple_string();
+
+    ++state.top().cur;  // bypass the '"'
+
+    string s;
+
+    // store string
+    for (;state.top().cur != state.top().end && *state.top().cur != '"';
+      ++state.top().cur)
+    {
+      s += *state.top().cur;
+    }
+
+    // maintain the state.top().cur invariant
+    if (*state.top().cur == '"')
+      ++state.top().cur;
+    else
+    {
+      cout << "Error: No closing quote for string that begins \""
+           << s.substr(0, 120) << "...\"\n";
+    }
+
+    return s;
+  }
+
 //------------------------------------  macro  -----------------------------------------//
 
   bool macro()  // true if succeeds
@@ -121,7 +190,23 @@ namespace
 //-----------------------------------  command  ----------------------------------------//
 
   bool command()  // true if succeeds
+  // postcondition: if true, state.top().cur updated to position past the command 
   {
+    if (std::memcmp(&*state.top().cur, state.top().start_marker.c_str(),
+      state.top().start_marker.size()) == 0)
+    {
+      // start_marker is present, so check for commands
+      const char* p = &*state.top().cur + state.top().start_marker.size();
+      if (std::memcmp(p, def_command, sizeof(def_command)-1) == 0
+        && std::isspace(*(p+sizeof(def_command)-1)))
+      {
+        std::advance(state.top().cur, state.top().start_marker.size()
+          + (sizeof(def_command)-1));
+        string macro_name(simple_string());
+        string macro_body(any_string());
+        macros.insert(std::make_pair(macro_name, macro_body));
+      }
+    }
     return false;
   }
 
@@ -167,6 +252,16 @@ int cpp_main(int argc, char* argv[])
 
   if (!process_state())
     return 1;
+
+  if (verbose)
+  {
+    cout << "Dump macro definitions:\n";
+    for (macro_map::const_iterator it = macros.cbegin();
+      it != macros.cend(); ++it)
+    {
+      cout << "  " << it->first << ": \"" << it->second << "\"\n";
+    }
+  }
 
   return 0;
 }
