@@ -1,5 +1,10 @@
 //  minimal macro processor  -----------------------------------------------------------//
 
+//  © Copyright Beman Dawes, 2011
+
+//  The contents are licensed under the Boost Software License, Version 1.0.
+//  See http://www.boost.org/LICENSE_1_0.txt
+
 #include <boost/detail/lightweight_main.hpp>
 #include <boost/assert.hpp>
 #include <iostream>
