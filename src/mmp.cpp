@@ -7,7 +7,7 @@
 #include <string>
 #include <cstring>
 #include <cctype>
-#include <vector>
+#include <list>
 #include <stack>
 #include <map>
 
@@ -51,13 +51,15 @@ namespace
     string                  macro_marker;  // macro marker; never empty()
   };
 
-  typedef std::stack<context, std::vector<context> > stack_type;
+  typedef std::stack<context, std::list<context> > stack_type;
   stack_type state;  // context stack
 
   typedef std::map<string, string> macro_map;
   macro_map macros;
 
   const bool lookahead = true;
+
+  bool process_state();
 
 //-----------------------------------  load_file  --------------------------------------//
 
@@ -140,6 +142,10 @@ namespace
   {
     string s;
     string::const_iterator it(state.top().cur);
+
+    // bypass leading whitespace
+    for (;it != state.top().end && std::isspace(*it);
+      ++it) {} 
 
     // store string
     for (;it != state.top().end &&
@@ -249,11 +255,25 @@ namespace
     {
       std::advance(state.top().cur, state.top().start_marker.size()
         + (sizeof(def_command)-1));
-      string macro_name(simple_string());
+      string macro_name(name());
       string macro_body(any_string());
       macros.insert(std::make_pair(macro_name, macro_body));
     }
-    else  // false alarm
+
+    // include command
+    else if (std::memcmp(p, include_command, sizeof(include_command)-1) == 0
+      && std::isspace(*(p+sizeof(include_command)-1)))
+    {
+      std::advance(state.top().cur, state.top().start_marker.size()
+        + (sizeof(include_command)-1));
+      string path(any_string());
+      new_context(path);
+      process_state();
+      state.pop();
+    }
+
+    // false alarm
+    else
       return false;
 
     // bypass trailing whitespace; this has the effect of avoiding the output of
@@ -270,6 +290,9 @@ namespace
   {
     BOOST_ASSERT(!state.empty());  // failure indicates program logic error
 
+    if (verbose)
+      cout << "Processing " << state.top().path << "...\n";
+
     for(; state.top().cur != state.top().end;)
     {
       if (command())
@@ -279,6 +302,9 @@ namespace
       out << *state.top().cur;
       ++state.top().cur;
     }
+
+    if (verbose)
+      cout << "  " << state.top().path << " complete\n";
 
     return true;
   }

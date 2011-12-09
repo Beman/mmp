@@ -3,5 +3,6 @@ here is
 some text. $MY_MACRO.
 $def MULTILINE "This one
 continues onto a second line"
+$include ../../smoke_test_include.txt
 OK, let's try $MULTILINE.
 That's all folks!
