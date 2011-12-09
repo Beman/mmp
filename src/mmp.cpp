@@ -9,23 +9,27 @@
 #include <boost/assert.hpp>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <cstring>
 #include <cctype>
 #include <list>
 #include <stack>
 #include <map>
+#include <boost/lexical_cast.hpp>
 
 using std::cout;
 using std::endl;
 using std::string;
+using boost::lexical_cast;
 
 /*
 
     TODO List
 
     *  command() for def should check macro doesn't already exist.
-    *  Count newlines so error message can give line number.
+    *  Path, contents, of a file should be stored once and a shared_ptr should
+       be kept in the context state.
 
 */
 
@@ -37,23 +41,33 @@ namespace
   string          out_path;
   bool            verbose;
 
+  int             error_count;
+  int             if_count;
+
   const string    default_start_marker("$");
   string          in_file_start_marker("$");
   const string    default_macro_marker("$");
   const char      def_command[] = "def";
   const char      include_command[] = "include";
+  const char      snippet_command[] = "snippet";
+  const char      if_command[] = "if";
+  const char      elseif_command[] = "elseif";
+  const char      endif_command[] = "endif";
+  const bool      lookahead = true;
 
   std::ofstream        out;
 
   struct context
   {
     string                  path;
+    int                     line_number;
     string                  content;
     string::const_iterator  cur;           // current position
     string::const_iterator  end;           // past-the-end
     string                  start_marker;  // command start marker; never empty()
     string                  end_marker;    // command end marker; may be empty()
-    string                  macro_marker;  // macro marker; never empty()
+    string                  macro_marker;  // never empty()
+    string                  snippet_id;    // may be empty()
   };
 
   typedef std::stack<context, std::list<context> > stack_type;
@@ -62,9 +76,31 @@ namespace
   typedef std::map<string, string> macro_map;
   macro_map macros;
 
-  const bool lookahead = true;
-
   bool process_state();
+
+//-------------------------------------  error  ----------------------------------------//
+
+  void error(const string& msg)
+  {
+    ++error_count;
+    if (state.empty() || !state.top().line_number)
+      cout << in_path << ": error: " << msg << endl;
+    else
+      cout << state.top().path << '(' << state.top().line_number
+           << "): error: " << msg << endl;
+  }
+
+//------------------------------------  advance  ---------------------------------------//
+
+  void advance(std::ptrdiff_t n=1)
+  {
+    for(; n; --n)
+    {
+      if (*state.top().cur == '\n')
+        ++state.top().line_number;
+      ++state.top().cur;
+    }
+  }
 
 //-----------------------------------  load_file  --------------------------------------//
 
@@ -73,7 +109,7 @@ namespace
     std::ifstream in(path, std::ios_base::in|std::ios_base::binary );
     if (!in)
     {
-      cout << "Error: Could not open input file: " << path << '\n';
+      error("could not open input file " + path);
       return false;
     }
     std::getline(in, target, '\0'); // read the whole file
@@ -89,18 +125,43 @@ namespace
     )  // true if succeeds
   {
     state.push(context());
+    state.top().path = path;
+    state.top().line_number = 0;
     if (!load_file(path, state.top().content))
     {
       state.pop();
       return false;
     }
-    state.top().path = path;
+    ++state.top().line_number;
     state.top().cur = state.top().content.cbegin();
     state.top().end = state.top().content.cend();
     state.top().start_marker = start_marker;
     state.top().end_marker = end_marker;
     state.top().macro_marker = macro_marker;
     return true;
+  }
+//-----------------------------------  set_id  -----------------------------------------//
+
+  void set_id(const string& id)
+  {
+    state.top().snippet_id = id;
+    string::size_type pos = state.top().content.find(
+      state.top().start_marker+"id "+id);
+    if (pos == string::npos)
+    {
+      error("could not find snippet " + id + " in " + state.top().path);
+      state.top().cur = state.top().end;
+      return;
+    }
+    state.top().cur += pos;
+    pos = state.top().content.find(state.top().start_marker+"idend", pos);
+    if (pos == string::npos)
+    {
+      error("could not find endid for snippet " + id + " in " + state.top().path);
+      state.top().cur = state.top().end;
+      return;
+    }
+    state.top().end = state.top().content.cbegin() + pos;
   }
 
 //------------------------------------  setup  -----------------------------------------//
@@ -195,30 +256,31 @@ namespace
   string any_string()
   {
     // bypass leading whitespace
-    for (;state.top().cur != state.top().end && std::isspace(*state.top().cur);
-      ++state.top().cur) {} 
+    for (; state.top().cur != state.top().end && std::isspace(*state.top().cur);
+         advance()) {} 
 
     if (*state.top().cur != '"')
       return simple_string();
 
-    ++state.top().cur;  // bypass the '"'
+    int starting_line = state.top().line_number;
+
+    advance();  // bypass the '"'
 
     string s;
 
     // store string
-    for (;state.top().cur != state.top().end && *state.top().cur != '"';
-      ++state.top().cur)
+    for (; state.top().cur != state.top().end && *state.top().cur != '"'; advance())
     {
       s += *state.top().cur;
     }
 
     // maintain the state.top().cur invariant
     if (*state.top().cur == '"')
-      ++state.top().cur;
+      advance();
     else
     {
-      cout << "Error: No closing quote for string that begins \""
-           << s.substr(0, 120) << "...\"\n";
+      error("no closing quote for string that began on line "
+        + lexical_cast<string>(starting_line));
     }
 
     return s;
@@ -231,12 +293,13 @@ namespace
     if (std::memcmp(&*state.top().cur, state.top().macro_marker.c_str(),
         state.top().macro_marker.size()) != 0)
       return false;
-    std::advance(state.top().cur, state.top().macro_marker.size()); 
+    advance(state.top().macro_marker.size()); 
     string macro_name(name());
     macro_map::const_iterator it = macros.find(macro_name);
     if (it == macros.end())
     {
-      cout << "Error: macro not found: " << macro_name << '\n';
+      error(macro_name + " macro not found" + );
+      return false;
     }
     out << it->second;
     return true;
@@ -258,8 +321,7 @@ namespace
     if (std::memcmp(p, def_command, sizeof(def_command)-1) == 0
       && std::isspace(*(p+sizeof(def_command)-1)))
     {
-      std::advance(state.top().cur, state.top().start_marker.size()
-        + (sizeof(def_command)-1));
+      advance(state.top().start_marker.size() + (sizeof(def_command)-1));
       string macro_name(name());
       string macro_body(any_string());
       macros.insert(std::make_pair(macro_name, macro_body));
@@ -269,12 +331,38 @@ namespace
     else if (std::memcmp(p, include_command, sizeof(include_command)-1) == 0
       && std::isspace(*(p+sizeof(include_command)-1)))
     {
-      std::advance(state.top().cur, state.top().start_marker.size()
-        + (sizeof(include_command)-1));
+      advance(state.top().start_marker.size() + (sizeof(include_command)-1));
       string path(any_string());
       new_context(path);
       process_state();
       state.pop();
+    }
+
+    // snippet command
+    else if (std::memcmp(p, snippet_command, sizeof(snippet_command)-1) == 0
+      && std::isspace(*(p+sizeof(snippet_command)-1)))
+    {
+      advance(state.top().start_marker.size() + (sizeof(snippet_command)-1));
+      string id(name());
+      string path(any_string());
+      new_context(path);
+      set_id(id);
+      process_state();
+      state.pop();
+    }
+
+    // if command
+    else if (std::memcmp(p, if_command, sizeof(if_command)-1) == 0
+      && std::isspace(*(p+sizeof(if_command)-1)))
+    {
+      advance(state.top().start_marker.size() + (sizeof(if_command)-1));
+    }
+
+    // endif command
+    else if (std::memcmp(p, endif_command, sizeof(endif_command)-1) == 0
+      && std::isspace(*(p+sizeof(endif_command)-1)))
+    {
+      advance(state.top().start_marker.size() + (sizeof(endif_command)-1));
     }
 
     // false alarm
@@ -284,7 +372,7 @@ namespace
     // bypass trailing whitespace; this has the effect of avoiding the output of
     // spurious whitespace such as a newline at the end of a command
     for (;state.top().cur != state.top().end && std::isspace(*state.top().cur);
-      ++state.top().cur) {} 
+      advance()) {} 
 
     return true;
   }
@@ -305,7 +393,7 @@ namespace
       if (macro())
         continue;
       out << *state.top().cur;
-      ++state.top().cur;
+      advance();
     }
 
     if (verbose)
@@ -325,20 +413,26 @@ namespace
 int cpp_main(int argc, char* argv[])
 {
   if (!setup(argc, argv))
-    return 1;
+    goto done;
 
   out.open(out_path, std::ios_base::out|std::ios_base::binary);
   if (!out)
   {
-    cout << "Error: Could not open output file: " << out_path << '\n';
-    return 1;
+    error("could not open output file " + out_path);
+    goto done;
   }
 
   if (!new_context(in_path, in_file_start_marker))
-    return 1;
+    goto done;
 
   if (!process_state())
-    return 1;
+    goto done;
+
+  if (if_count)
+  {
+    error(lexical_cast<string>(if_count) + " unterminated if command(s)");
+    goto done;
+  }
 
   if (verbose)
   {
@@ -350,5 +444,9 @@ int cpp_main(int argc, char* argv[])
     }
   }
 
-  return 0;
+done:
+
+  cout << error_count << " error(s) detected\n";
+
+  return error_count ? 1 :0;
 }
