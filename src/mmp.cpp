@@ -30,7 +30,7 @@ using boost::lexical_cast;
     *  command() for def should check macro doesn't already exist.
     *  Path, contents, of a file should be stored once and a shared_ptr should
        be kept in the context state.
-
+    *  $if foo == $MACRO should work?
 */
 
 //--------------------------------------------------------------------------------------//
@@ -140,10 +140,12 @@ namespace
     state.top().macro_marker = macro_marker;
     return true;
   }
+
 //-----------------------------------  set_id  -----------------------------------------//
 
   void set_id(const string& id)
   {
+    BOOST_ASSERT(state.top().cur == state.top().content.cbegin()); // precondition check
     state.top().snippet_id = id;
     string::size_type pos = state.top().content.find(
       state.top().start_marker+"id "+id);
@@ -153,7 +155,7 @@ namespace
       state.top().cur = state.top().end;
       return;
     }
-    state.top().cur += pos;
+    advance(pos);
     pos = state.top().content.find(state.top().start_marker+"idend", pos);
     if (pos == string::npos)
     {
@@ -298,11 +300,94 @@ namespace
     macro_map::const_iterator it = macros.find(macro_name);
     if (it == macros.end())
     {
-      error(macro_name + " macro not found" + );
+      error(macro_name + " macro not found");
       return false;
     }
     out << it->second;
     return true;
+  }
+
+//-------------------------------------  next_if  --------------------------------------//
+
+string::size_type next_if(string::size_type pos)
+{
+  for (;;)
+  {
+    pos = state.top().content.find(state.top().start_marker + if_command, pos);
+    if (pos == string::npos)
+      break;
+    string::size_type delim_pos(
+      pos + state.top().start_marker.size() + (sizeof(if_command)-1));
+    if (std::isspace(state.top().content[delim_pos]))
+      break;
+    pos = delim_pos;
+  }
+  return pos;
+}
+//-------------------------------------  next_endif  -----------------------------------//
+
+string::size_type next_endif(string::size_type pos)
+{
+  for (;;)
+  {
+    pos = state.top().content.find(state.top().start_marker + endif_command, pos);
+    if (pos == string::npos)
+      break;
+    string::size_type delim_pos(
+      pos + state.top().start_marker.size() + (sizeof(endif_command)-1));
+    if (std::isspace(state.top().content[delim_pos]))
+      break;
+    pos = delim_pos;
+  }
+  return pos;
+}
+
+//------------------------------  find_matching_endif  ---------------------------------//
+
+  string::size_type find_matching_endif(string::size_type pos)
+  {
+    string::size_type endif_pos;
+
+    do  // use iteration to replace tail recursion
+    {
+      pos += state.top().start_marker.size() + (sizeof(if_command)-1);
+
+      endif_pos = next_endif(pos);
+
+      if (endif_pos == string::npos)
+      {
+        error("missing endif");
+        return string::npos;
+      }
+
+      pos = next_if(pos);
+    } while (pos < endif_pos);
+
+    return endif_pos;
+  }
+
+//----------------------------------  bool_expr  ---------------------------------------//
+
+  bool bool_expr()  // true expression evaluates to true
+  {
+    string lhs(any_string());
+    string operation(any_string());
+    string rhs(any_string());
+
+    if (operation == "==")
+      return lhs == rhs;
+    else if (operation == "!=")
+      return lhs != rhs;
+    else if (operation == "<")
+      return lhs < rhs;
+    else if (operation == "<=")
+      return lhs <= rhs;
+    else if (operation == ">")
+      return lhs > rhs;
+    else if (operation == ">=")
+      return lhs >= rhs;
+    error("expected a relational operation instead of \"" + operation + "\"");
+    return false;
   }
 
 //-----------------------------------  command  ----------------------------------------//
@@ -356,6 +441,14 @@ namespace
       && std::isspace(*(p+sizeof(if_command)-1)))
     {
       advance(state.top().start_marker.size() + (sizeof(if_command)-1));
+      ++if_count;
+      if (!bool_expr())
+      {
+        string::size_type pos(find_matching_endif(
+          std::distance(state.top().content.cbegin(), state.top().cur)));
+        if (pos != string::npos)
+          advance(pos - std::distance(state.top().content.cbegin(), state.top().cur));
+      }
     }
 
     // endif command
@@ -363,6 +456,10 @@ namespace
       && std::isspace(*(p+sizeof(endif_command)-1)))
     {
       advance(state.top().start_marker.size() + (sizeof(endif_command)-1));
+      if (if_count)
+        --if_count;
+      else
+        error("endif command without matching if command");
     }
 
     // false alarm
@@ -430,7 +527,8 @@ int cpp_main(int argc, char* argv[])
 
   if (if_count)
   {
-    error(lexical_cast<string>(if_count) + " unterminated if command(s)");
+    error(lexical_cast<string>(if_count) +
+      " if command(s) without matching endif command");
     goto done;
   }
 
