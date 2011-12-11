@@ -24,13 +24,67 @@ using std::string;
 using boost::lexical_cast;
 
 /*
-
-    TODO List
+   TODO List
 
     *  command() for def should check macro doesn't already exist.
     *  Path, contents, of a file should be stored once and a shared_ptr should
        be kept in the context state.
     *  $if foo == $MACRO should work?
+*/
+
+//--------------------------------------------------------------------------------------//
+//                                                                                      //
+//                                   EBNF Grammar                                       //
+//  uses ::= for production rules, {...} for zero or more, [...] for optional           //
+//                                                                                      //
+//--------------------------------------------------------------------------------------//
+
+/*grammar
+
+  text          ::= { macro-name
+                    | command-start command command-end
+                    | character
+                    }
+
+  macro-name    ::= macro-marker name [macro-marker]  // no whitespace               
+
+  command-start ::= "$"                        // default
+                  | string                     // string is replaceable
+
+  command-end   ::= white-space {white-space}  // default
+                  | string {white-space}       // string is replaceable
+
+  string        ::= macro-name
+                  | simple-string
+                  | """{escaped-char}"""
+                  | "$(" name ")"              // environmental variable reference
+
+  simple-string ::= n-char{n-char}
+
+  name          ::= n-char{n-char}
+
+  n-char        ::= alnum-char | "_"
+
+  command       ::= "def" name string
+                  | "include" string           // string is filename
+                  | "snippet" name string      // name is id, string is filename
+                  | "if" expression text
+                    {command-start "elif" command-end expression text}
+                    [command-start "else" command-end text]
+                    command-start "endif" command-end]
+
+  expression    ::= string "==" string
+                  | string "!=" string
+                  | string  "<" string
+                  | string "<=" string
+                  | string ">" string
+                  | string ">=" string
+                  | "(" or-expr ")"
+  
+  and-expr      ::= expression {"&&" expression}
+                         
+  or-expr       ::= and-expr {"||" and-expr}
+
 */
 
 //--------------------------------------------------------------------------------------//
@@ -203,6 +257,12 @@ namespace
     }
     return ok;
   }
+
+//--------------------------------------------------------------------------------------//
+//                                                                                      //
+//                           Recursive Decent Parser                                    //       
+//                                                                                      //
+//--------------------------------------------------------------------------------------//
 
 //-------------------------------------  name  -----------------------------------------//
 
