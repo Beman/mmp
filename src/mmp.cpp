@@ -231,6 +231,9 @@ namespace
 
     string::const_iterator begin = state.top().cur;
     if_enum result = advance_past_matching_elif_else_endif();
+
+   Hum... that puts us past the elif_else_endif. We really want advance *to* matching ...
+
     state.top().end = state.top().cur;
     state.top().cur = begin;
     return result;
@@ -349,10 +352,10 @@ namespace
 
   string name_(bool lookahead_)
   {
+    skip_whitespace(); 
+
     string s;
     string::const_iterator it(state.top().cur);
-
-    skip_whitespace(); 
 
     // store string
     for (;it != state.top().end &&
@@ -442,7 +445,19 @@ namespace
       return expr;
     }
 
-    string operation(string_());
+    skip_whitespace();
+    string operation;
+    if (std::strchr("=!<>", *state.top().cur))
+    {
+      operation += *state.top().cur;
+      advance();
+    }
+    if (*state.top().cur == '=')
+    {
+      operation += '=';
+      advance();
+    }
+
     string rhs(string_());
 
     if (operation == "==")
@@ -458,7 +473,7 @@ namespace
     else if (operation == ">=")
       return lhs >= rhs;
     else
-    error("expected a relational operator instead of \"" + operation + "\"");
+      error("expected a relational operator instead of \"" + operation + "\"");
     return false;
   }
 
@@ -474,7 +489,7 @@ namespace
       if (!primary_expr_())
         result = false;     
     }
-  return result;
+    return result;
   }
 
 //----------------------------------  expression_  -------------------------------------//
