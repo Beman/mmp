@@ -27,14 +27,17 @@ using boost::lexical_cast;
 /*
    TODO List
 
+    *  Should simple_string be any non-whitespace character? Problem : $if a==b requires
+       whitespace after a.
+    *  Macro expansion should be pushed into state.
     *  command() for def should check macro doesn't already exist.
     *  Path, contents, of a file should be stored once and a shared_ptr should
        be kept in the context state.
-    *  Can ~ be eliminated by calling string_(lookahead) or name_(lookahead), perhaps
+    *  Can ~ be eliminated after command-start by calling string_(lookahead)
+       or name_(lookahead), perhaps
        with a max length argument? Or just add a little function:
          bool is_next(const string& arg);  // true if found, advances if found
-    *  Test macro recursion and command within macro expansion work correctly.
-       I.E. macro expansion should be pushed into state.
+    *  environmental variable reference not implemented yet
 */
 
 //--------------------------------------------------------------------------------------//
@@ -48,8 +51,8 @@ using boost::lexical_cast;
 /*
 //$grammar
 
-  text          ::= { command-start ~ command command-end
-                    | macro-marker ~ macro-call
+  text          ::= { macro-marker ~ macro-call
+                    | command-start ~ command command-end
                     | character
                     }
 
@@ -115,11 +118,14 @@ namespace
   const char      include_command[] = "include";
   const char      snippet_command[] = "snippet";
   const char      if_command[] = "if";
+  const char      elif_command[] = "elif";
+  const char      else_command[] = "else";
+  const char      endif_command[] = "endif";
   const bool      lookahead = true;
 
   std::ofstream   out;
  
-  enum  if_enum { endif_not_found, elif_clause, else_clause, endif_clause };
+  enum  text_termination { text_end, elif_clause, else_clause, endif_clause };
 
   struct context
   {
@@ -141,9 +147,9 @@ namespace
   macro_map macros;
 
   
-  void text_();
+  text_termination text_(bool side_effects = true);
   bool expression_();
-  string name_(bool lookahead_=false);
+  string name_(bool lookahead_ = false);
 
 //-------------------------------------  error  ----------------------------------------//
 
@@ -196,48 +202,48 @@ namespace
 
 //------------------------  advance_past_matching_elif_else_endif  ---------------------//
 
-  if_enum advance_past_matching_elif_else_endif()
-  {
-    int nested = 0;
-    for (; state.top().cur != state.top().end;)
-    {
-      if (is_command_start())
-      {
-        advance(state.top().command_start.size());
-        string command(name_());
+  //if_enum advance_past_matching_elif_else_endif()
+  //{
+  //  int nested = 0;
+  //  for (; state.top().cur != state.top().end;)
+  //  {
+  //    if (is_command_start())
+  //    {
+  //      advance(state.top().command_start.size());
+  //      string command(name_());
 
-        if (command == "if")
-          ++nested;
-        else if (command == "elif" && nested == 0)
-          return elif_clause;
-        else if (command == "else" && nested == 0)
-          return else_clause;
-        else if (command == "endif" && nested-- == 0)
-          return endif_clause;
-      }
-      else
-        ++state.top().cur;
-    }
-    return endif_not_found;
-  }
+  //      if (command == "if")
+  //        ++nested;
+  //      else if (command == "elif" && nested == 0)
+  //        return elif_clause;
+  //      else if (command == "else" && nested == 0)
+  //        return else_clause;
+  //      else if (command == "endif" && nested-- == 0)
+  //        return endif_clause;
+  //    }
+  //    else
+  //      ++state.top().cur;
+  //  }
+  //  return endif_not_found;
+  //}
 
 //---------------------------------  push_if_clause  -----------------------------------//
 
-  if_enum push_if_clause()
-  {
-    // grossly inefficient right now, but will be OK when context changed to shared_ptr
-    context clause = state.top();
-    state.push(clause);
+  //if_enum push_if_clause()
+  //{
+  //  // grossly inefficient right now, but will be OK when context changed to shared_ptr
+  //  context clause = state.top();
+  //  state.push(clause);
 
-    string::const_iterator begin = state.top().cur;
-    if_enum result = advance_past_matching_elif_else_endif();
+  //  string::const_iterator begin = state.top().cur;
+  //  if_enum result = advance_past_matching_elif_else_endif();
 
-   Hum... that puts us past the elif_else_endif. We really want advance *to* matching ...
+  // Hum... that puts us past the elif_else_endif. We really want advance *to* matching ...
 
-    state.top().end = state.top().cur;
-    state.top().cur = begin;
-    return result;
-  }
+  //  state.top().end = state.top().cur;
+  //  state.top().cur = begin;
+  //  return result;
+  //}
 
 //-----------------------------------  load_file  --------------------------------------//
 
@@ -246,7 +252,7 @@ namespace
     std::ifstream in(path, std::ios_base::in|std::ios_base::binary );
     if (!in)
     {
-      error("could not open input file " + path);
+      error("could not open input file \"" + path + '"');
       return false;
     }
     std::getline(in, target, '\0'); // read the whole file
@@ -413,18 +419,13 @@ namespace
 
 //----------------------------------  macro_call_  -------------------------------------//
 
-  bool macro_call_()  // true if it is actually a macro call
+  void macro_call_()
   {
-    advance(state.top().macro_marker.size()); 
     string macro_name(name_());
     macro_map::const_iterator it = macros.find(macro_name);
     if (it == macros.end())
-    {
       error(macro_name + " macro not found");
-      return false;
-    }
     out << it->second;
-    return true;
   }
 
 //----------------------------------  primary_expr_  -----------------------------------//
@@ -509,58 +510,33 @@ namespace
 
 //-----------------------------------  if_body_  ---------------------------------------//
 
-  void if_body_()
+  void if_body_(bool side_effects)
   {
-    if_enum clause = endif_not_found;
+    int if_line_n = state.top().line_number;
 
     // expression text
-    bool true_done = false;
-    if (expression_())
-    {
-      clause = push_if_clause();
-      text_();
-      state.pop();
-      true_done = true;
-    }
-    else
-      clause = advance_past_matching_elif_else_endif();
+    bool true_done = expression_();
+    text_termination terminated_by = text_(true_done && side_effects);
 
     // {command-start "elif" command-end expression text}
-    for (; clause == elif_clause;)
+    for (; terminated_by == elif_clause;)
     {
-      if (!true_done && expression_())
-      {
-        clause = push_if_clause();
-        text_();
-        state.pop();
-        true_done = true;
-      }
-      else
-        clause = advance_past_matching_elif_else_endif();
+      text_((true_done = expression_() && !true_done) && side_effects);
     }
 
     // [command-start "else" command-end text]
-    if (clause == elif_clause)
-    {
-     if (!true_done)
-      {
-        clause = push_if_clause();
-        text_();
-        state.pop();
-        true_done = true;
-      }
-      else
-        clause = advance_past_matching_elif_else_endif();
-    }
+    if (terminated_by == else_clause)
+      text_(!true_done && side_effects);
 
     // command-start "endif" command-end]
-    if (clause != endif_clause)
-      error("expected endif");
+    if (terminated_by != endif_clause)
+      error("expected \"endif\" to close \"if\" begun on line "
+        + lexical_cast<string>(if_line_n));
   }
 
 //-----------------------------------  command_  ---------------------------------------//
 
-  bool command_()  // true if command found
+  bool command_(bool side_effects)  // return true if command found
   // postcondition: if true, state.top().cur updated to position past the command 
   {
     // command_start is present, so check for commands
@@ -573,7 +549,8 @@ namespace
       advance(state.top().command_start.size() + (sizeof(def_command)-1));
       string macro_name(name_());
       string macro_body(string_());
-      macros.insert(std::make_pair(macro_name, macro_body));
+      if (side_effects)
+        macros.insert(std::make_pair(macro_name, macro_body));
     }
 
     // include command
@@ -582,9 +559,12 @@ namespace
     {
       advance(state.top().command_start.size() + (sizeof(include_command)-1));
       string path(string_());
-      new_context(path);
-      text_();
-      state.pop();
+      if (side_effects)
+      {
+        new_context(path);
+        text_();
+        state.pop();
+      }
     }
 
     // snippet command
@@ -594,10 +574,13 @@ namespace
       advance(state.top().command_start.size() + (sizeof(snippet_command)-1));
       string id(name_());
       string path(string_());
-      new_context(path);
-      set_id(id);
-      text_();
-      state.pop();
+      if (side_effects)
+      {
+        new_context(path);
+        set_id(id);
+        text_();
+        state.pop();
+      }
     }
 
     // if command
@@ -605,7 +588,7 @@ namespace
       && std::isspace(*(p+sizeof(if_command)-1)))
     {
       advance(state.top().command_start.size() + (sizeof(if_command)-1));
-      if_body_();
+      if_body_(side_effects);
     }
 
     // false alarm
@@ -622,25 +605,62 @@ namespace
 
 //------------------------------------- text_  -----------------------------------------//
 
-  void text_()
+  text_termination text_(bool side_effects)
   {
     BOOST_ASSERT(!state.empty());  // failure indicates program logic error
 
-    if (verbose)
-      cout << "Processing " << state.top().path << "...\n";
+    //if (verbose)
+    //  cout << "Processing " << state.top().path << "...\n";
 
     for(; state.top().cur != state.top().end;)
     {
-      if (is_command_start() && command_())
+      if (is_command_start())
+      {
+        // text_ is terminated by an elif, else, or endif
+        const char* p = &*state.top().cur + state.top().command_start.size();
+        if (memcmp(p, elif_command, sizeof(elif_command)-1) == 0
+          && std::isspace(*(p+sizeof(elif_command)-1)))
+        {
+          advance(state.top().command_start.size() + (sizeof(elif_command)-1));
+          return elif_clause;
+        }
+        if (memcmp(p, else_command, sizeof(else_command)-1) == 0
+          && std::isspace(*(p+sizeof(else_command)-1)))
+        {
+          advance(state.top().command_start.size() + (sizeof(else_command)-1));
+          return else_clause;
+        }
+        if (memcmp(p, endif_command, sizeof(endif_command)-1) == 0
+          && std::isspace(*(p+sizeof(endif_command)-1)))
+        {
+          advance(state.top().command_start.size() + (sizeof(endif_command)-1));
+          return endif_clause;
+        }
+
+        if (command_(side_effects))
+          continue;
+      }
+
+      if (is_macro_marker())
+      {
+        advance(state.top().macro_marker.size()); 
+
+        if (side_effects)
+          macro_call_();
+        else
+          name_();
         continue;
-      if (is_macro_marker() && macro_call_())
-        continue;
-      out << *state.top().cur;
+      }
+
+      if (side_effects)
+        out << *state.top().cur;
       advance();
     }
 
-    if (verbose)
-      cout << "  " << state.top().path << " complete\n";
+    //if (verbose)
+    //  cout << "  " << state.top().path << " complete\n";
+
+    return text_end;
   }
 
 }  // unnamed namespace

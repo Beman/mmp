@@ -3,7 +3,7 @@ here is
 some text. $MY_MACRO.
 $def MULTILINE "This one
 continues onto a second line"
-$include ../../smoke_test_include.txt
+$include "../../smoke_test_include.txt"
 OK, let's try $MULTILINE.
 $if true == true
 pass
