@@ -521,12 +521,12 @@ namespace
     // {command-start "elif" command-end expression text}
     for (; terminated_by == elif_clause;)
     {
-      text_((true_done = expression_() && !true_done) && side_effects);
+      terminated_by = text_((true_done = expression_() && !true_done) && side_effects);
     }
 
     // [command-start "else" command-end text]
     if (terminated_by == else_clause)
-      text_(!true_done && side_effects);
+      terminated_by = text_(!true_done && side_effects);
 
     // command-start "endif" command-end]
     if (terminated_by != endif_clause)

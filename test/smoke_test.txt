@@ -11,4 +11,36 @@ $endif
 $if true == false
 fail
 $endif
+if ... else tests
+$if true == true
+pass
+$else
+fail
+$endif
+$if true == false
+fail
+$else
+pass
+$endif
+if ... elif tests
+$if true == true
+pass
+$elif true == true
+fail
+$elif true != true
+fail
+$else
+fail
+$endif
+$if true == false
+fail
+$elif true == false
+fail
+$elif true == true
+pass
+$elif true == false
+fail
+$else
+fail
+$endif
 That's all folks!
