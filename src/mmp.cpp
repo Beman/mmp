@@ -521,7 +521,7 @@ namespace
     // {command-start "elif" command-end expression text}
     for (; terminated_by == elif_clause;)
     {
-      terminated_by = text_((true_done = expression_() && !true_done) && side_effects);
+      terminated_by = text_((!true_done && (true_done = expression_())) && side_effects);
     }
 
     // [command-start "else" command-end text]
