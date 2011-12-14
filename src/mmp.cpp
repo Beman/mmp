@@ -88,7 +88,7 @@ using boost::lexical_cast;
 
   primary_expr  ::= string "==" string
                   | string "!=" string
-                  | string  "<" string
+                  | string "<"   string
                   | string "<=" string
                   | string ">" string
                   | string ">=" string
@@ -200,50 +200,23 @@ namespace
      state.top().macro_marker.size()) == 0;
  }
 
-//------------------------  advance_past_matching_elif_else_endif  ---------------------//
+ //---------------------------------  if_operator_advance  -----------------------------//
+                                                         
+ bool if_operator_advance(const string& op)
+ {
+   
+   const char* begin = &*state.top().cur;
+   const char* p(begin);
+   while (isspace(*p))
+     ++p;
 
-  //if_enum advance_past_matching_elif_else_endif()
-  //{
-  //  int nested = 0;
-  //  for (; state.top().cur != state.top().end;)
-  //  {
-  //    if (is_command_start())
-  //    {
-  //      advance(state.top().command_start.size());
-  //      string command(name_());
+   if (memcmp(p, op.c_str(), op.size()) != 0)
+     return false;
+   advance((p-begin) + op.size());
+   return true;
+ }
 
-  //      if (command == "if")
-  //        ++nested;
-  //      else if (command == "elif" && nested == 0)
-  //        return elif_clause;
-  //      else if (command == "else" && nested == 0)
-  //        return else_clause;
-  //      else if (command == "endif" && nested-- == 0)
-  //        return endif_clause;
-  //    }
-  //    else
-  //      ++state.top().cur;
-  //  }
-  //  return endif_not_found;
-  //}
 
-//---------------------------------  push_if_clause  -----------------------------------//
-
-  //if_enum push_if_clause()
-  //{
-  //  // grossly inefficient right now, but will be OK when context changed to shared_ptr
-  //  context clause = state.top();
-  //  state.push(clause);
-
-  //  string::const_iterator begin = state.top().cur;
-  //  if_enum result = advance_past_matching_elif_else_endif();
-
-  // Hum... that puts us past the elif_else_endif. We really want advance *to* matching ...
-
-  //  state.top().end = state.top().cur;
-  //  state.top().cur = begin;
-  //  return result;
-  //}
 
 //-----------------------------------  load_file  --------------------------------------//
 
@@ -484,9 +457,8 @@ namespace
   {
     bool result = primary_expr_();
   
-    for (; simple_string_(lookahead) == "&&";)
+    for (; if_operator_advance("&&");)
     {
-      simple_string_();
       if (!primary_expr_())
         result = false;     
     }
@@ -499,9 +471,8 @@ namespace
   {
     bool result = and_expr_();
   
-    for (; simple_string_(lookahead) == "||";)
+    for (; if_operator_advance("||");)
     {
-      simple_string_();
       if (and_expr_())
         result = true;     
     }

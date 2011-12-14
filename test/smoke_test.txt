@@ -5,6 +5,7 @@ $def MULTILINE "This one
 continues onto a second line"
 $include "../../smoke_test_include.txt"
 OK, let's try $MULTILINE.
+if ... test
 $if true == true
 pass
 $endif
@@ -43,4 +44,21 @@ fail
 $else
 fail
 $endif
+if ... test with expressions
+$if true == false || true == true
+pass ||
+$else
+fail ||
+$endif
+$if true == true && x == x
+pass &&
+$else
+fail &&
+$endif
+$if true == false && true == true
+fail &&
+$else
+pass &&
+$endif
+
 That's all folks!
