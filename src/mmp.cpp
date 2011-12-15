@@ -41,67 +41,6 @@ using boost::lexical_cast;
 */
 
 //--------------------------------------------------------------------------------------//
-//                                                                                      //
-//                                   EBNF Grammar                                       //
-//  uses ::= for production rules, {...} for zero or more, [...] for optional,          //
-//  ~ for no whitespace allowed                                                         //
-//                                                                                      //
-//--------------------------------------------------------------------------------------//
-
-/*
-//$grammar
-
-  text          ::= { macro-marker ~ macro-call
-                    | command-start ~ command command-end
-                    | character
-                    }
-
-  macro-call    ::= name ~ [macro-marker]               
-
-  command-start ::= "$"                        // default
-                  | string                     // string is replaceable
-
-  command-end   ::= white-space {white-space}  // default
-                  | string {white-space}       // string is replaceable
-
-  string        ::= macro-marker ~ macro-call
-                  | simple-string
-                  | """{escaped-char}"""
-                  | "$(" name ")"              // environmental variable reference
-
-  simple-string ::= n-char{n-char}
-
-  name          ::= n-char{n-char}
-
-  n-char        ::= alnum-char | "_"
-
-  command       ::= "def" name string
-                  | "include" string           // string is filename
-                  | "snippet" name string      // name is id, string is filename
-                  | "if" if_body
-
-  if_body       ::= expression text
-                    {command-start "elif" command-end expression text}
-                    [command-start "else" command-end text]
-                    command-start "endif" command-end]
-
-
-  primary_expr  ::= string "==" string
-                  | string "!=" string
-                  | string "<"   string
-                  | string "<=" string
-                  | string ">" string
-                  | string ">=" string
-                  | "(" expression ")"
-  
-  and-expr      ::= primary_expr {"&&" primary_expr}
-                         
-  expression    ::= and-expr {"||" and-expr}
-
-//$
-*/
-
-//--------------------------------------------------------------------------------------//
 
 namespace
 {
@@ -319,6 +258,67 @@ namespace
     }
     return ok;
   }
+
+//--------------------------------------------------------------------------------------//
+//                                                                                      //
+//                                   EBNF Grammar                                       //
+//  uses ::= for production rules, {...} for zero or more, [...] for optional,          //
+//  ~ for no whitespace allowed                                                         //
+//                                                                                      //
+//--------------------------------------------------------------------------------------//
+
+/*
+//$grammar
+
+  text          ::= { macro-marker ~ macro-call
+                    | command-start ~ command command-end
+                    | character
+                    }
+
+  macro-call    ::= name ~ [macro-marker]               
+
+  command-start ::= "$"                        // default
+                  | string                     // string is replaceable
+
+  command-end   ::= white-space {white-space}  // default
+                  | string {white-space}       // string is replaceable
+
+  string        ::= macro-marker ~ macro-call
+                  | simple-string
+                  | """{escaped-char}"""
+                  | "$(" name ")"              // environmental variable reference
+
+  simple-string ::= n-char{n-char}
+
+  name          ::= n-char{n-char}
+
+  n-char        ::= alnum-char | "_"
+
+  command       ::= "def" name string
+                  | "include" string           // string is filename
+                  | "snippet" name string      // name is id, string is filename
+                  | "if" if_body
+
+  if_body       ::= expression text
+                    {command-start "elif" command-end expression text}
+                    [command-start "else" command-end text]
+                    command-start "endif" command-end]
+
+
+  primary_expr  ::= string "==" string
+                  | string "!=" string
+                  | string "<"   string
+                  | string "<=" string
+                  | string ">" string
+                  | string ">=" string
+                  | "(" expression ")"
+  
+  and-expr      ::= primary_expr {"&&" primary_expr}
+                         
+  expression    ::= and-expr {"||" and-expr}
+
+//$
+*/
 
 //--------------------------------------------------------------------------------------//
 //                                                                                      //
