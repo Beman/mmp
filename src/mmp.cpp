@@ -30,7 +30,6 @@ using boost::lexical_cast;
     *  Should simple_string be any non-whitespace character? Problem : $if a==b requires
        whitespace after a.
     *  Macro expansion should be pushed into state.
-    *  command() for def should check macro doesn't already exist.
     *  Path, contents, of a file should be stored once and a shared_ptr should
        be kept in the context state.
     *  Can ~ be eliminated after command-start by calling string_(lookahead)
@@ -38,6 +37,7 @@ using boost::lexical_cast;
        with a max length argument? Or just add a little function:
          bool is_next(const string& arg);  // true if found, advances if found
     *  environmental variable reference not implemented yet
+    *  See how QB associates markers with file types, and provides overrides of same.
 */
 
 //--------------------------------------------------------------------------------------//
@@ -83,7 +83,7 @@ namespace
   stack_type state;  // context stack
 
   typedef std::map<string, string> macro_map;
-  macro_map macros;
+  macro_map macro;
 
   
   text_termination text_(bool side_effects = true);
@@ -226,34 +226,41 @@ namespace
   bool setup(int argc, char* argv[])  // true if succeeds
   {
     bool ok = true;
-    while (argc > 1) 
+    while (argc > 3) 
     {
-      if (argc > 2 && std::strcmp(argv[1], "--in") == 0 )
-        { in_path = argv[2]; --argc; ++argv; }
-      else if (argc > 2 && std::strcmp(argv[1], "--out") == 0 )
-        { out_path = argv[2]; --argc; ++argv; }
-      else if ( std::strcmp( argv[1], "--verbose" ) == 0 ) verbose = true;
+      if (std::strchr(argv[1], '='))
+      {
+        string name(argv[1], std::strchr(argv[1], '='));
+        string value(std::strchr(argv[1], '=')+1, argv[1]+std::strlen(argv[1]));
+        macro[name] = value;
+      }
+      else if ( std::strcmp( argv[1], "-verbose" ) == 0 ) verbose = true;
       else
       { 
-        cout << "Unknown switch: " << argv[1] << "\n"; ok = false;
+        cout << "Error: unknown option: " << argv[1] << "\n"; ok = false;
       }
       --argc;
       ++argv;
     }
 
-    if (in_path.empty())
-      { cout << "Missing --in\n"; ok = false; }
-    if (out_path.empty())
-      { cout << "Missing --out\n"; ok = false; }
+    if (argc == 3)
+    {
+      in_path = argv[1];
+      out_path = argv[2];
+    }
+    else
+    {
+      cout << "Error: missing path" << (argc < 2 ? "s" : "") << '\n';
+      ok = false;
+    }
 
     if (!ok)
     {
       cout <<
-        "Usage: mmp [switch...]\n"
-        "  switch: --in path   Input file path. Required.\n"
-        "          --out path  Output file path. Required.\n"
-        "          --verbose   Report progress during processing\n"
-        "Example: mmp --verbose --in ../doc/src/index.html --out ../doc/index.html\n"
+        "Usage: mmp [option...] input-path output-path\n"
+        "  option: name=value   Define macro\n"
+        "          -verbose     Report progress during processing\n"
+        "Example: mmp -verbose VERSION=1.5 \"DESC=Beta 1\" index.html ..index.html\n"
         ;
     }
     return ok;
@@ -395,8 +402,8 @@ namespace
   void macro_call_()
   {
     string macro_name(name_());
-    macro_map::const_iterator it = macros.find(macro_name);
-    if (it == macros.end())
+    macro_map::const_iterator it = macro.find(macro_name);
+    if (it == macro.end())
       error(macro_name + " macro not found");
     out << it->second;
   }
@@ -517,10 +524,10 @@ namespace
       && std::isspace(*(p+sizeof(def_command)-1)))
     {
       advance(state.top().command_start.size() + (sizeof(def_command)-1));
-      string macro_name(name_());
-      string macro_body(string_());
+      string name(name_());
+      string value(string_());
       if (side_effects)
-        macros.insert(std::make_pair(macro_name, macro_body));
+        macro[name] = value;
     }
 
     // include command
@@ -644,7 +651,7 @@ namespace
 int cpp_main(int argc, char* argv[])
 {
   if (!setup(argc, argv))
-    goto done;
+    return 1;
 
   out.open(out_path, std::ios_base::out|std::ios_base::binary);
   if (!out)
@@ -661,8 +668,8 @@ int cpp_main(int argc, char* argv[])
   if (verbose)
   {
     cout << "Dump macro definitions:\n";
-    for (macro_map::const_iterator it = macros.cbegin();
-      it != macros.cend(); ++it)
+    for (macro_map::const_iterator it = macro.cbegin();
+      it != macro.cend(); ++it)
     {
       cout << "  " << it->first << ": \"" << it->second << "\"\n";
     }

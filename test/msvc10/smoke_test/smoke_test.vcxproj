@@ -58,7 +58,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>"$(TargetDir)\$(TargetName).exe"  --verbose --in ../../smoke_test.txt --out ../../smoke_test_output.txt</Command>
+      <Command>"$(TargetDir)\$(TargetName).exe"  -verbose CLI=fail CLI=pass ../../smoke_test.txt ../../smoke_test_output.txt</Command>
     </PostBuildEvent>
     <PostBuildEvent>
       <Message>Executing test $(TargetName).exe...</Message>
