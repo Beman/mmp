@@ -200,9 +200,9 @@ namespace
      state.top().macro_marker.size()) == 0;
  }
 
- //---------------------------------  if_operator_advance  -----------------------------//
+ //-----------------------------  advance_if_operator  ---------------------------------//
                                                          
- bool if_operator_advance(const string& op)
+ bool advance_if_operator(const string& op)
  {
    
    const char* begin = &*state.top().cur;
@@ -405,11 +405,9 @@ namespace
 
   bool primary_expr_()  // true if evaluates to true
   {
-    string lhs(string_());
-
-    if (lhs == "(")
+    
+    if (advance_if_operator("("))
     {
-      advance();
       bool expr = expression_();
       skip_whitespace();
       if (*state.top().cur == ')')
@@ -419,6 +417,7 @@ namespace
       return expr;
     }
 
+    string lhs(string_());
     skip_whitespace();
     string operation;
     if (std::strchr("=!<>", *state.top().cur))
@@ -457,7 +456,7 @@ namespace
   {
     bool result = primary_expr_();
   
-    for (; if_operator_advance("&&");)
+    for (; advance_if_operator("&&");)
     {
       if (!primary_expr_())
         result = false;     
@@ -471,7 +470,7 @@ namespace
   {
     bool result = and_expr_();
   
-    for (; if_operator_advance("||");)
+    for (; advance_if_operator("||");)
     {
       if (and_expr_())
         result = true;     
