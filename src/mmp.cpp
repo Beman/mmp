@@ -277,23 +277,35 @@ namespace
 /*
 //$grammar
 
-  text          ::= { macro-marker ~ macro-call
-                    | command-start ~ command command-end
+  macro-call    ::= macro-start ~ macro-body
+ 
+  macro-body    ::= name ~ macro-end               // if name not defined, returns
+                                                   // macro-start ~ name ~ macro-end
+                  | name                           // returns macro-start ~ name
+                  | "(" ~ name ~ ")" ~ macro-end   // environmental variable reference
+                  | macro-end                      // returns macro-start
+
+  macro-start   ::= "$"                            // replaceable; see docs
+                  
+  macro-end     ::= ";"                            // replaceable; see docs
+
+  --------------------------------------------------------------------------------------
+
+  //  In certain file contexts, a command-start is only recognized inside comments,
+  //  where the comment syntax is specific for that file type.
+
+
+  text          ::= { command-start ~ command
                     | character
                     }
 
-  macro-call    ::= name ~ [macro-marker]               
+  command-start ::= "$"                        // replaceable; see docs
 
-  command-start ::= "$"                        // default
-                  | string                     // string is replaceable
+  string        ::= simple-string
+                  | """{z-char}"""
 
-  command-end   ::= white-space {white-space}  // default
-                  | string {white-space}       // string is replaceable
-
-  string        ::= macro-marker ~ macro-call
-                  | simple-string
-                  | """{escaped-char}"""
-                  | "$(" name ")"              // environmental variable reference
+  s-char        ::= "\"" | "\r" | "\n"
+                  | character
 
   simple-string ::= n-char{n-char}
 
@@ -301,16 +313,15 @@ namespace
 
   n-char        ::= alnum-char | "_"
 
-  command       ::= "def" name string
+  command       ::= "def" name string          // name shall not be a keyword
                   | "include" string           // string is filename
                   | "snippet" name string      // name is id, string is filename
                   | "if" if_body
 
   if_body       ::= expression text
-                    {command-start "elif" command-end expression text}
-                    [command-start "else" command-end text]
-                    command-start "endif" command-end]
-
+                    {command-start ~ "elif" expression text}
+                    [command-start ~ "else" text]
+                    command-start ~ "endif"
 
   primary_expr  ::= string "==" string
                   | string "!=" string
