@@ -31,8 +31,6 @@ using boost::lexical_cast;
    TODO List
 
     *  Throw on load_file() failure or each use check new_context() return.
-    *  Should simple_string be any non-whitespace character? Problem : $if a==b requires
-       whitespace after a.
     *  Optimization, better error messages: Don't invoke macro_() for $def, etc.
     *  Path, contents, of a file should be stored once and a shared_ptr should
        be kept in the context state.
@@ -428,15 +426,23 @@ void macro_call_()
     const char* p = std::getenv(name.c_str());
     if (state.top().cur != state.top().end && *state.top().cur == ')')
       advance(1, no_macro_check);
-    if (p)
-      push_content(state.top().macro_start_
-        + "(" + name + ")" + state.top().macro_end_, p);
     else
+      error("missing closing )");
+    if (is_macro_end())
+      advance(state.top().macro_end_.size(), no_macro_check);
+    else
+      error("missing " + state.top().macro_end_);
+
+    if (p)
+      push_content(state.top().macro_start_+"("+ name +")"+state.top().macro_end_, p);
+    else
+    {
       error("not found: " + state.top().macro_start_
         + "(" + name + ")" + state.top().macro_end_);
       push_content(state.top().macro_start_
         + "(" + name + ")" + state.top().macro_end_, state.top().macro_start_
         + "(" + name + ")" + state.top().macro_end_);
+    }
   }
 
   // macro-name [macro-end]

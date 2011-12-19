@@ -1,4 +1,5 @@
 Smoke Test
+$(BOOST_TRUNK);
 $def MY_MACRO "this is my macro"
 here is
 some text. $MY_MACRO;.
