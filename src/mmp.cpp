@@ -5,6 +5,8 @@
 //  The contents are licensed under the Boost Software License, Version 1.0.
 //  See http://www.boost.org/LICENSE_1_0.txt
 
+#define _CRT_SECURE_NO_WARNINGS
+
 #include <boost/detail/lightweight_main.hpp>
 #include <boost/assert.hpp>
 #include <iostream>
@@ -16,6 +18,7 @@
 #include <list>
 #include <stack>
 #include <map>
+#include <cstdlib>   // for getenv()
 #include <boost/lexical_cast.hpp>
 
 using std::cout;
@@ -29,14 +32,10 @@ using boost::lexical_cast;
 
     *  Should simple_string be any non-whitespace character? Problem : $if a==b requires
        whitespace after a.
-    *  Macro expansion should be pushed into state.
+    *  Optimization, better error messages: Don't invoke macro_() for $def, etc.
     *  Path, contents, of a file should be stored once and a shared_ptr should
        be kept in the context state.
-    *  Can ~ be eliminated after command-start by calling string_(lookahead)
-       or name_(lookahead), perhaps
-       with a max length argument? Or just add a little function:
-         bool is_next(const string& arg);  // true if found, advances if found
-    *  environmental variable reference not implemented yet
+    *  environmental variable reference not tested yet
     *  See how QB associates markers with file types, and provides overrides of same.
 */
 
@@ -47,20 +46,16 @@ namespace
   string          in_path;
   string          out_path;
   bool            verbose = false;
+  bool            log_input = false;
+  bool            log_output = false;
 
   int             error_count = 0;
 
   const string    default_command_start("$");
   string          in_file_command_start("$");
-  const string    default_macro_marker("$");
-  const char      def_command[] = "def";
-  const char      include_command[] = "include";
-  const char      snippet_command[] = "snippet";
-  const char      if_command[] = "if";
-  const char      elif_command[] = "elif";
-  const char      else_command[] = "else";
-  const char      endif_command[] = "endif";
-  const bool      lookahead = true;
+  const string    default_macro_start("$");
+  const string    default_macro_end(";");
+  const bool      no_macro_check = false;
 
   std::ofstream   out;
  
@@ -73,9 +68,10 @@ namespace
     string                  content;
     string::const_iterator  cur;            // current position
     string::const_iterator  end;            // past-the-end
-    string                  command_start;  // command start marker; never empty()
+    string                  command_start;  // command start marker; !empty()
     string                  command_end;    // command end marker; may be empty()
-    string                  macro_marker;   // never empty()
+    string                  macro_start_;   // !empty()
+    string                  macro_end_;     // !empty()
     string                  snippet_id;     // may be empty()
   };
 
@@ -84,11 +80,13 @@ namespace
 
   typedef std::map<string, string> macro_map;
   macro_map macro;
-
   
   text_termination text_(bool side_effects = true);
   bool expression_();
-  string name_(bool lookahead_ = false);
+  string name_();
+  void macro_call_();
+  bool is_macro_start();
+  bool is_macro_end();
 
 //-------------------------------------  error  ----------------------------------------//
 
@@ -104,13 +102,30 @@ namespace
 
 //------------------------------------  advance  ---------------------------------------//
 
-  void advance(std::ptrdiff_t n=1)
+  void advance(std::ptrdiff_t n=1, bool macro_check=true)
   {
     for(; n; --n)
     {
       if (*state.top().cur == '\n')
         ++state.top().line_number;
       ++state.top().cur;
+
+      while (state.top().cur == state.top().end && state.size() > 1)
+        state.pop();
+
+      if (log_input)
+      {
+        cout << "  Input: ";
+        if (state.top().cur == state.top().end)
+          cout << "end\n";
+        else
+          cout << *state.top().cur << "\n";
+      }
+
+      if (macro_check && state.top().cur != state.top().end && is_macro_start())
+      {
+        macro_call_();
+      }
     }
   }
 
@@ -119,11 +134,10 @@ namespace
   inline void skip_whitespace()
   {
     for (; state.top().cur != state.top().end && std::isspace(*state.top().cur);
-      ++state.top().cur)
-    {}
+      advance()) {}
   }
 
-//-------------------------------  is_command_start  -----------------------------------//
+//--------------------------------  is_command_start  ----------------------------------//
 
  inline bool is_command_start()
  {
@@ -131,12 +145,20 @@ namespace
      state.top().command_start.size()) == 0;
  }
 
-//-------------------------------  is_macro_marker  -----------------------------------//
+//--------------------------------  is_macro_start  -----------------------------------//
 
- inline bool is_macro_marker()
+ inline bool is_macro_start()
  {
-   return std::memcmp(&*state.top().cur, state.top().macro_marker.c_str(),
-     state.top().macro_marker.size()) == 0;
+   return std::memcmp(&*state.top().cur, state.top().macro_start_.c_str(),
+     state.top().macro_start_.size()) == 0;
+ }
+
+//---------------------------------  is_macro_end  ------------------------------------//
+
+ inline bool is_macro_end()
+ {
+   return std::memcmp(&*state.top().cur, state.top().macro_end_.c_str(),
+     state.top().macro_end_.size()) == 0;
  }
 
  //-----------------------------  advance_if_operator  ---------------------------------//
@@ -154,8 +176,6 @@ namespace
    advance((p-begin) + op.size());
    return true;
  }
-
-
 
 //-----------------------------------  load_file  --------------------------------------//
 
@@ -176,7 +196,8 @@ namespace
   bool new_context(const string& path,
     const string& command_start = default_command_start,
     const string& command_end = string(),
-    const string& macro_marker = default_macro_marker
+    const string& macro_start = default_macro_start,
+    const string& macro_end = default_macro_end
     )  // true if succeeds
   {
     state.push(context());
@@ -192,8 +213,31 @@ namespace
     state.top().end = state.top().content.cend();
     state.top().command_start = command_start;
     state.top().command_end = command_end;
-    state.top().macro_marker = macro_marker;
+    state.top().macro_start_ = macro_start;
+    state.top().macro_end_ = macro_end;
     return true;
+  }
+
+//--------------------------------  push_content  --------------------------------------//
+
+  void push_content(const string& name, const string& content)
+  {
+    if (verbose)
+      cout << "pushing " << name << " with content \"" << content << '"' <<endl;
+
+    context cx;
+
+    cx.path = name;
+    cx.line_number = 1;
+    cx.content = content;
+    cx.command_start = state.top().command_start; 
+    cx.command_end = state.top().command_end; 
+    cx.macro_start_ = state.top().macro_start_; 
+    cx.macro_end_ = state.top().macro_end_;
+
+    state.push(cx);
+    state.top().cur = state.top().content.cbegin();
+    state.top().end = state.top().content.cend();
   }
 
 //-----------------------------------  set_id  -----------------------------------------//
@@ -235,6 +279,8 @@ namespace
         macro[name] = value;
       }
       else if ( std::strcmp( argv[1], "-verbose" ) == 0 ) verbose = true;
+      else if ( std::strcmp( argv[1], "-log-input" ) == 0 ) log_input = true;
+      else if ( std::strcmp( argv[1], "-log-output" ) == 0 ) log_output = true;
       else
       { 
         cout << "Error: unknown option: " << argv[1] << "\n"; ok = false;
@@ -269,49 +315,58 @@ namespace
 //--------------------------------------------------------------------------------------//
 //                                                                                      //
 //                                   EBNF Grammar                                       //
-//  uses ::= for production rules, {...} for zero or more, [...] for optional,          //
-//  ~ for no whitespace allowed                                                         //
+//                                                                                      //
+//  Notation: ::= for production rules, | for alternatives, {...} for zero or more,     //
+//  [...] for optional                                                                  //
 //                                                                                      //
 //--------------------------------------------------------------------------------------//
 
 /*
 //$grammar
 
-  macro-call    ::= macro-start ~ macro-body
+  //  no whitespace permitted between elements
+
+  macro-call    ::= macro-start macro-body
  
-  macro-body    ::= name ~ macro-end               // if name not defined, returns
-                                                   // macro-start ~ name ~ macro-end
-                  | name                           // returns macro-start ~ name
-                  | "(" ~ name ~ ")" ~ macro-end   // environmental variable reference
-                  | macro-end                      // returns macro-start
+  macro-body    ::= macro-end                      // null macro, pushes macro-start
+                  | "(" macro-name ")"  macro-end  // pushes value of macro-name
+                                                   // environmental variable if found,
+                                                   // otherwise pushes macro-call
+                  | macro-name  [macro-end]        // if no macro-end, pushes macro-call
+                                                   // if macro-name defined, pushes
+                                                   // what it is defined as,
+                                                   // otherwise pushes macro-call
 
   macro-start   ::= "$"                            // replaceable; see docs
                   
   macro-end     ::= ";"                            // replaceable; see docs
 
+  macro_name    ::= name_char {name_char}
+
   --------------------------------------------------------------------------------------
 
-  //  In certain file contexts, a command-start is only recognized inside comments,
+  //  In certain file contexts, a command-start is only recognized inside a comment,
   //  where the comment syntax is specific for that file type.
 
+  //  whitespace allowed between elements unless otherwise specified
 
-  text          ::= { command-start ~ command
+
+  text          ::= { command-start command {whitespace}
+                    | command-start            // treated as ordinary character(s)
                     | character
                     }
 
   command-start ::= "$"                        // replaceable; see docs
 
-  string        ::= simple-string
-                  | """{z-char}"""
+  string        ::= name
+                  | """{s-char}"""
 
   s-char        ::= "\"" | "\r" | "\n"
-                  | character
+                  | character                 // " not allowed
 
-  simple-string ::= n-char{n-char}
+  name          ::= name-char{name-char}
 
-  name          ::= n-char{n-char}
-
-  n-char        ::= alnum-char | "_"
+  name-char     ::= alnum-char | "_"
 
   command       ::= "def" name string          // name shall not be a keyword
                   | "include" string           // string is filename
@@ -319,9 +374,9 @@ namespace
                   | "if" if_body
 
   if_body       ::= expression text
-                    {command-start ~ "elif" expression text}
-                    [command-start ~ "else" text]
-                    command-start ~ "endif"
+                    {command-start "elif" expression text}
+                    [command-start "else" text]
+                    command-start "endif"
 
   primary_expr  ::= string "==" string
                   | string "!=" string
@@ -340,39 +395,113 @@ namespace
 
 //--------------------------------------------------------------------------------------//
 //                                                                                      //
-//                           Recursive Decent Parser                                    //
+//                           Recursive Decent Parsers                                   //
 //     functions with names ending in underscore correspond to grammar productions      //
 //                                                                                      //
 //--------------------------------------------------------------------------------------//
 
+//--------------------------------------------------------------------------------------//
+//                                 macro-call parser                                    //
+//--------------------------------------------------------------------------------------//
+
+string macro_name();
+
+//-----------------------------------  macro_call  -------------------------------------//
+
+void macro_call_()
+{
+  advance(state.top().macro_start_.size(), no_macro_check);
+
+  // null macro
+  if (is_macro_end())
+  {
+    advance(state.top().macro_end_.size(), no_macro_check);
+    push_content("null macro", state.top().macro_start_);
+  }
+
+  // enviromental variable reference
+  else if (state.top().cur != state.top().end && *state.top().cur == '(')
+  {
+    advance(1, no_macro_check);
+    string name(macro_name());
+    const char* p = std::getenv(name.c_str());
+    if (state.top().cur != state.top().end && *state.top().cur == ')')
+      advance(1, no_macro_check);
+    if (p)
+      push_content(state.top().macro_start_
+        + "(" + name + ")" + state.top().macro_end_, p);
+    else
+      error("not found: " + state.top().macro_start_
+        + "(" + name + ")" + state.top().macro_end_);
+      push_content(state.top().macro_start_
+        + "(" + name + ")" + state.top().macro_end_, state.top().macro_start_
+        + "(" + name + ")" + state.top().macro_end_);
+  }
+
+  // macro-name [macro-end]
+  else
+  {
+    string name(macro_name());
+    if (is_macro_end())
+    {
+      advance(state.top().macro_end_.size(), no_macro_check);
+      macro_map::const_iterator it(macro.find(name));
+      if (it != macro.cend())  // macro found
+        push_content(state.top().macro_start_ + name + state.top().macro_end_,
+          it->second);
+      else  // macro not found so push advanced over characters
+        push_content(state.top().macro_start_ + name + state.top().macro_end_,
+          state.top().macro_start_ + name + state.top().macro_end_);
+    }
+    else  // no macro-end so push advanced over characters
+      push_content(state.top().macro_start_ + name, state.top().macro_start_ + name);
+  }
+}
+
+//------------------------------------  macro_name  ------------------------------------//
+
+string macro_name()
+{
+  string name;
+
+  while (state.top().cur != state.top().end
+    && (std::isalnum(*state.top().cur) || *state.top().cur == '_'))
+  {
+    name += *state.top().cur;
+    advance();
+  }
+
+  return name;
+}
+
+//--------------------------------------------------------------------------------------//
+//                                    text parser                                       //
+//--------------------------------------------------------------------------------------//
+
 //-------------------------------------  name_  ----------------------------------------//
 
-  string name_(bool lookahead_)
+  string name_()
   {
     skip_whitespace(); 
 
     string s;
-    string::const_iterator it(state.top().cur);
 
     // store string
-    for (;it != state.top().end &&
-      (std::isalnum(*it) || *it == '_');
-      ++it)
+    for (; state.top().cur != state.top().end &&
+      (std::isalnum(*state.top().cur) || *state.top().cur == '_');
+      advance())
     {
-      s += *it;
+      s += *state.top().cur;
     }
-
-    if (!lookahead_)
-      state.top().cur = it;
 
     return s;
   }
 
 //---------------------------------  simple_string_  -----------------------------------//
 
-  inline string simple_string_(bool _lookahead=false)
+  inline string simple_string_()
   {
-    return name_(_lookahead);
+    return name_();
   }
 
 //-----------------------------------  string_  ----------------------------------------//
@@ -406,17 +535,6 @@ namespace
     }
 
     return s;
-  }
-
-//----------------------------------  macro_call_  -------------------------------------//
-
-  void macro_call_()
-  {
-    string macro_name(name_());
-    macro_map::const_iterator it = macro.find(macro_name);
-    if (it == macro.end())
-      error(macro_name + " macro not found");
-    out << it->second;
   }
 
 //----------------------------------  primary_expr_  -----------------------------------//
@@ -524,17 +642,20 @@ namespace
 
 //-----------------------------------  command_  ---------------------------------------//
 
-  bool command_(bool side_effects)  // return true if command found
-  // postcondition: if true, state.top().cur updated to position past the command 
+  void command_(const string& whitespace, const string& command, bool side_effects) 
   {
-    // command_start is present, so check for commands
-    const char* p = &*state.top().cur + state.top().command_start.size();
+    //string whitespace;  // in case this isn't really a command
+
+    //for (; state.top().cur != state.top().end && std::isspace(*state.top().cur);
+    //    advance())
+    //  whitespace += *state.top().cur;
+
+    //// command_start is present, so check for commands
+    //string command(name_());
 
     // def[ine] macro command
-    if (memcmp(p, def_command, sizeof(def_command)-1) == 0
-      && std::isspace(*(p+sizeof(def_command)-1)))
+    if (command == "def")
     {
-      advance(state.top().command_start.size() + (sizeof(def_command)-1));
       string name(name_());
       string value(string_());
       if (side_effects)
@@ -542,10 +663,8 @@ namespace
     }
 
     // include command
-    else if (memcmp(p, include_command, sizeof(include_command)-1) == 0
-      && std::isspace(*(p+sizeof(include_command)-1)))
+    else if (command == "include")
     {
-      advance(state.top().command_start.size() + (sizeof(include_command)-1));
       string path(string_());
       if (side_effects)
       {
@@ -556,10 +675,8 @@ namespace
     }
 
     // snippet command
-    else if (memcmp(p, snippet_command, sizeof(snippet_command)-1) == 0
-      && std::isspace(*(p+sizeof(snippet_command)-1)))
+    else if (command == "snippet")
     {
-      advance(state.top().command_start.size() + (sizeof(snippet_command)-1));
       string id(name_());
       string path(string_());
       if (side_effects)
@@ -572,23 +689,26 @@ namespace
     }
 
     // if command
-    else if (memcmp(p, if_command, sizeof(if_command)-1) == 0
-      && std::isspace(*(p+sizeof(if_command)-1)))
-    {
-      advance(state.top().command_start.size() + (sizeof(if_command)-1));
+    else if (command == "if")
       if_body_(side_effects);
-    }
 
-    // false alarm
+    // not a command
     else
-      return false;
+    {
+      if (side_effects)
+      {
+        out << state.top().command_start << whitespace << command;
+
+        if (log_input)
+          cout << "  Output: " << state.top().command_start << whitespace << command
+               << endl;
+      }
+      return;
+    }
 
     // bypass trailing whitespace; this has the effect of avoiding the output of
     // spurious whitespace such as a newline at the end of a command
-    for (;state.top().cur != state.top().end && std::isspace(*state.top().cur);
-      advance()) {} 
-
-    return true;
+    skip_whitespace(); 
   }
 
 //------------------------------------- text_  -----------------------------------------//
@@ -604,50 +724,43 @@ namespace
     {
       if (is_command_start())
       {
+        advance(state.top().command_start.size(), no_macro_check);
+
+        string whitespace;  // in case this isn't really a command
+
+        for (; state.top().cur != state.top().end && std::isspace(*state.top().cur);
+            advance())
+          whitespace += *state.top().cur;
+
+        string command(name_());
+
         // text_ is terminated by an elif, else, or endif
-        const char* p = &*state.top().cur + state.top().command_start.size();
-        if (memcmp(p, elif_command, sizeof(elif_command)-1) == 0
-          && std::isspace(*(p+sizeof(elif_command)-1)))
-        {
-          advance(state.top().command_start.size() + (sizeof(elif_command)-1));
+        if (command == "elif")
           return elif_clause;
-        }
-        if (memcmp(p, else_command, sizeof(else_command)-1) == 0
-          && std::isspace(*(p+sizeof(else_command)-1)))
-        {
-          advance(state.top().command_start.size() + (sizeof(else_command)-1));
+        else if (command == "else")
           return else_clause;
-        }
-        if (memcmp(p, endif_command, sizeof(endif_command)-1) == 0
-          && std::isspace(*(p+sizeof(endif_command)-1)))
-        {
-          advance(state.top().command_start.size() + (sizeof(endif_command)-1));
+        else if (command == "endif")
           return endif_clause;
-        }
-
-        if (command_(side_effects))
-          continue;
-      }
-
-      if (is_macro_marker())
-      {
-        advance(state.top().macro_marker.size()); 
-
-        if (side_effects)
-          macro_call_();
         else
-          name_();
-        continue;
+         command_(whitespace, command, side_effects);
       }
+      else  // character
+      {
+        if (side_effects)
+        {
+          out << *state.top().cur;;
 
-      if (side_effects)
-        out << *state.top().cur;
-      advance();
+          if (log_input)
+            cout << "  Output: " << *state.top().cur << endl;
+        }
+        advance();
+      }
     }
 
     //if (verbose)
     //  cout << "  " << state.top().path << " complete\n";
 
+    BOOST_ASSERT(state.size() == 1);  // failure indicates program logic error
     return text_end;
   }
 
