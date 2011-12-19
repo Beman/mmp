@@ -30,6 +30,7 @@ using boost::lexical_cast;
 /*
    TODO List
 
+    *  Throw on load_file() failure or each use check new_context() return.
     *  Should simple_string be any non-whitespace character? Problem : $if a==b requires
        whitespace after a.
     *  Optimization, better error messages: Don't invoke macro_() for $def, etc.
@@ -644,15 +645,6 @@ string macro_name()
 
   void command_(const string& whitespace, const string& command, bool side_effects) 
   {
-    //string whitespace;  // in case this isn't really a command
-
-    //for (; state.top().cur != state.top().end && std::isspace(*state.top().cur);
-    //    advance())
-    //  whitespace += *state.top().cur;
-
-    //// command_start is present, so check for commands
-    //string command(name_());
-
     // def[ine] macro command
     if (command == "def")
     {
@@ -670,7 +662,6 @@ string macro_name()
       {
         new_context(path);
         text_();
-        state.pop();
       }
     }
 
@@ -684,7 +675,6 @@ string macro_name()
         new_context(path);
         set_id(id);
         text_();
-        state.pop();
       }
     }
 
