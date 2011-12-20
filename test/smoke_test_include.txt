@@ -1,1 +1,2 @@
 This is an included file!
+$id my_id=This is a snippet with an id of "my_id".$endid

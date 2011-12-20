@@ -245,19 +245,26 @@ namespace
   {
     BOOST_ASSERT(state.top().cur == state.top().content.cbegin()); // precondition check
     state.top().snippet_id = id;
-    string::size_type pos = state.top().content.find(
-      state.top().command_start+"id "+id);
+
+    // find the start of the id command
+    string command(state.top().command_start + "id " + id + "=");
+    string::size_type pos = state.top().content.find(command);
     if (pos == string::npos)
     {
-      error("could not find snippet " + id + " in " + state.top().path);
+      error("Could not find snippet " + id + " in " + state.top().path);
       state.top().cur = state.top().end;
       return;
     }
-    advance(pos);
-    pos = state.top().content.find(state.top().command_start+"idend", pos);
+
+    // set cur to start of snippet
+    advance(pos + command.size(), no_macro_check);
+
+    // find the end of the snippet
+    pos = state.top().content.find(state.top().command_start+"endid", pos);
     if (pos == string::npos)
     {
-      error("could not find endid for snippet " + id + " in " + state.top().path);
+      error("Could not find " + state.top().command_start + "endid for snippet "
+        + id + " in " + state.top().path);
       state.top().cur = state.top().end;
       return;
     }
@@ -313,7 +320,7 @@ namespace
 
 //--------------------------------------------------------------------------------------//
 //                                                                                      //
-//                                   EBNF Grammar                                       //
+//                                   EBNF Grammars                                      //
 //                                                                                      //
 //  Notation: ::= for production rules, | for alternatives, {...} for zero or more,     //
 //  [...] for optional                                                                  //
@@ -321,7 +328,8 @@ namespace
 //--------------------------------------------------------------------------------------//
 
 /*
-//$grammar
+
+  --------------------------------------------------------------------------------------
 
   //  no whitespace permitted between elements
 
@@ -341,9 +349,6 @@ namespace
   macro-end     ::= ";"                            // replaceable; see docs
 
   macro_name    ::= name_char {name_char}
-
-  --------------------------------------------------------------------------------------
-
   //  In certain file contexts, a command-start is only recognized inside a comment,
   //  where the comment syntax is specific for that file type.
 
@@ -389,7 +394,14 @@ namespace
                          
   expression    ::= and-expr {"||" and-expr}
 
-//$
+  --------------------------------------------------------------------------------------
+
+  //  snippet grammar
+
+  //  whitespace allowed only in {character}
+
+  snippet    ::= command_start "id " name "=" {character} command-start "endid" 
+
 */
 
 //--------------------------------------------------------------------------------------//
