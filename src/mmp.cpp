@@ -2,7 +2,7 @@
 
 //  © Copyright Beman Dawes, 2011
 
-//  The contents are licensed under the Boost Software License, Version 1.0.
+//  Licensed under the Boost Software License, Version 1.0.
 //  See http://www.boost.org/LICENSE_1_0.txt
 
 #define _CRT_SECURE_NO_WARNINGS
@@ -30,6 +30,7 @@ using boost::lexical_cast;
 /*
    TODO List
 
+    *  Probable bug if file starts with macro. Add test case of file started by macro.
     *  Throw on load_file() failure or each use check new_context() return.
     *  Optimization, better error messages: Don't invoke macro_() for $def, etc.
     *  Path, contents, of a file should be stored once and a shared_ptr should
@@ -353,12 +354,23 @@ namespace
   //  where the comment syntax is specific for that file type.
 
   //  whitespace allowed between elements unless otherwise specified
-
+    
+  --------------------------------------------------------------------------------------
 
   text          ::= { command-start command {whitespace}
                     | command-start            // treated as ordinary character(s)
                     | character
                     }
+
+  command       ::= "def" name string          // name shall not be a keyword
+                  | "include" string           // string is filename
+                  | "snippet" name string      // name is id, string is filename
+                  | "if" if_body
+
+  if_body       ::= expression text
+                    {command-start "elif" expression text}
+                    [command-start "else" text]
+                    command-start "endif"
 
   command-start ::= "$"                        // replaceable; see docs
 
@@ -371,16 +383,6 @@ namespace
   name          ::= name-char{name-char}
 
   name-char     ::= alnum-char | "_"
-
-  command       ::= "def" name string          // name shall not be a keyword
-                  | "include" string           // string is filename
-                  | "snippet" name string      // name is id, string is filename
-                  | "if" if_body
-
-  if_body       ::= expression text
-                    {command-start "elif" expression text}
-                    [command-start "else" text]
-                    command-start "endif"
 
   primary_expr  ::= string "==" string
                   | string "!=" string
@@ -398,9 +400,11 @@ namespace
 
   //  snippet grammar
 
+  $id snippet=
+
   //  whitespace allowed only in {character}
 
-  snippet    ::= command_start "id " name "=" {character} command-start "endid" 
+  snippet    ::= command_start "id " name "=" {character} command-start "endid" $endid
 
 */
 
