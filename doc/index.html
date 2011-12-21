@@ -1,0 +1,74 @@
+<html>
+
+<head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="GENERATOR" content="Microsoft FrontPage 5.0">
+<meta name="ProgId" content="FrontPage.Editor.Document">
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>Minimal Macro Processor</title>
+<style type="text/css">
+ ins {background-color:#A0FFA0}
+ del {background-color:#FFA0A0}
+ body { font-family: sans-serif; }
+</style>
+</head>
+
+<body>
+
+<!--webbot bot="PurpleText" PREVIEW="Do not edit - this is a generated file. To change, edit src/index.html and run src/build.bat" -->
+
+<h1>Minimal Macro Processor</h1>
+
+<p>The Minimal Macro Processor (MMP) is a general text macro processor. The 
+motivating use case is preprocessing HTML files for program and library 
+documentation. </p>
+
+<p>MMP stands on the shoulders of giants: Joel de Guzman and Eric Niebler's <i>
+<a href="http://www.boost.org/doc/libs/1_48_0/doc/html/quickbook.html">Quickbook</a></i>, 
+and Christopher Strachey's
+<a href="http://comjnl.oxfordjournals.org/content/8/3/225.full.pdf+html">A 
+general purpose macrogenerator</a>.</p>
+
+<h2>Syntax</h2>
+
+<p>EBNF...</p>
+
+<h3>Macro call syntax</h3>
+
+<p>As input text is processed, it is first checked for macro calls, and the 
+macro call replaced by the macro's definition. The process is recursive; a macro 
+definition may itself include macro calls.</p>
+
+<h3>Command syntax</h3>
+
+<p>Input text may contain embedded commands.</p>
+
+<h3>Snippet syntax</h3>
+
+<p>When a snippet command includes a file, only the portion identified by the 
+snippet syntax is processed.</p>
+
+<blockquote>
+  <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#111111">
+    <tr>
+      <td bgcolor="#CCE6FF"><pre>
+
+  //  whitespace allowed only in {character}
+
+  snippet    ::= command_start "id " name "=" {character} command-start "endid" </pre></td>
+    </tr>
+  </table>
+</blockquote>
+
+<hr>
+
+<p><font size="2">Last revised:
+<!--webbot bot="Timestamp" S-Type="EDITED" S-Format="%d %B %Y" startspan -->21 December 2011<!--webbot bot="Timestamp" endspan i-checksum="38776" --></font></p>
+<p><font size="2">© Beman Dawes 2011</font></p>
+<p><font size="2">Licensed under the </font>
+<a href="http://www.boost.org/LICENSE_1_0.txt"><font size="2">Boost Software 
+License, Version 1.0</font></a></p>
+
+</body>
+
+</html>
