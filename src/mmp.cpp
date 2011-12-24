@@ -323,88 +323,81 @@ namespace
 //                                                                                      //
 //                                   EBNF Grammars                                      //
 //                                                                                      //
-//  Notation: ::= for production rules, | for alternatives, {...} for zero or more,     //
-//  [...] for optional                                                                  //
+//  Notation: ::= for production rule, | for alternative, {...} for zero or more,       //
+//  [...] for optional, "..." for instances of production rule "literal"                //
+//                                                                                      //
+//  Whitespace is permitted where grammar elements are separated by whitespace          // 
 //                                                                                      //
 //--------------------------------------------------------------------------------------//
 
 /*
+  //  text grammar
 
-  --------------------------------------------------------------------------------------
+  $id text=
 
-  //  no whitespace permitted between elements
+  text           ::= {character}
+                 
+  character      ::= {command-start [command] [command-end]} buffer-character
+                                                // if command omitted, push command-start.
+                                                // use command-end to avoid unwanted
+                                                // whitespace
+                   
+  command        ::= "def" name string          // define macro-name, macro-value
+                   | "include" string           // include path
+                   | "snippet" name string      // include snippet id, path
+                   | "if" if_body
+                   | macro-call
+                 
+  if_body        ::= expression text
+                     {command-start "elif" expression text}
+                     [command-start "else" text]
+                     command-start "endif"
 
-  macro-call    ::= macro-start macro-body
- 
-  macro-body    ::= macro-end                      // null macro, pushes macro-start
-                  | "(" macro-name ")"  macro-end  // pushes value of macro-name
-                                                   // environmental variable if found,
-                                                   // otherwise pushes macro-call
-                  | macro-name  [macro-end]        // if no macro-end, pushes macro-call
-                                                   // if macro-name defined, pushes
-                                                   // what it is defined as,
-                                                   // otherwise pushes macro-call
+  macro-call     ::= "(" name ")"               // push value of environmental
+                                                // variable name if found,
+                                                // otherwise push command
+                   | name                       // if name is a macro-name, push
+                                                // macro-value, otherwise
+                                                // push command
+                 
+  command-start  ::= "$"                        // replaceable; see docs
+                 
+  command-end    ::= ";"                        // replaceable; see docs
+                 
+  literal        ::= {character}                // characters have given value
+                                                // alphabetic terminated by non-alphabetic 
+                                                // others terminated by end of given value
 
-  macro-start   ::= "$"                            // replaceable; see docs
-                  
-  macro-end     ::= ";"                            // replaceable; see docs
+  name           ::= character{character}       // terminated by !(isalnum || "_")
 
-  macro_name    ::= name_char {name_char}
-  //  In certain file contexts, a command-start is only recognized inside a comment,
-  //  where the comment syntax is specific for that file type.
-
-  //  whitespace allowed between elements unless otherwise specified
-    
-  --------------------------------------------------------------------------------------
-
-  text          ::= { command-start command {whitespace}
-                    | command-start            // treated as ordinary character(s)
-                    | character
-                    }
-
-  command       ::= "def" name string          // name shall not be a keyword
-                  | "include" string           // string is filename
-                  | "snippet" name string      // name is id, string is filename
-                  | "if" if_body
-
-  if_body       ::= expression text
-                    {command-start "elif" expression text}
-                    [command-start "else" text]
-                    command-start "endif"
-
-  command-start ::= "$"                        // replaceable; see docs
-
-  string        ::= name
-                  | """{s-char}"""
-
-  s-char        ::= "\"" | "\r" | "\n"
-                  | character                 // " not allowed
-
-  name          ::= name-char{name-char}
-
-  name-char     ::= alnum-char | "_"
-
-  primary_expr  ::= string "==" string
-                  | string "!=" string
-                  | string "<"   string
-                  | string "<=" string
-                  | string ">" string
-                  | string ">=" string
-                  | "(" expression ")"
-  
-  and-expr      ::= primary_expr {"&&" primary_expr}
-                         
-  expression    ::= and-expr {"||" and-expr}
+  string         ::= name
+                   | """{string-char}"""
+                 
+  string-char    ::= "\""                       // escape for " character
+                   | "\r"                       // escape for return
+                   | "\n"                       // escape for newline
+                   | character
+                          
+  expression     ::= and-expr {"||" and-expr}
+                 
+  and-expr       ::= primary_expr {"&&" primary_expr}
+                 
+  primary_expr   ::= string "==" string
+                   | string "!=" string
+                   | string "<"   string
+                   | string "<=" string
+                   | string ">" string
+                   | string ">=" string
+                   | "(" expression ")"
+   $endid
 
   --------------------------------------------------------------------------------------
 
   //  snippet grammar
 
   $id snippet=
-
-  //  whitespace allowed only in {character}
-
-  snippet    ::= command_start "id " name "=" {character} command-start "endid" $endid
+  snippet     ::= command_start "id " name "=" {character} command-start "endid"
+  $endid
 
 */
 
