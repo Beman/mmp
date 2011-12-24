@@ -337,32 +337,29 @@ namespace
 
   text           ::= {character}
                  
-  character      ::= {command-start [command] [command-end]} buffer-character
-                                                // if command omitted, push command-start.
-                                                // use command-end to avoid unwanted
-                                                // whitespace
+  character      ::= {command-start command-element}buffer-character
+  
+  command-start  ::= "$"                        // replaceable; see docs
+
+  command-element ::= command-end               // null command; push command-start
+                    | command-body [command-end] // use command-end to avoid whitespace
+                                                // after a command-body
+                  
+  command-end    ::= ";"                        // replaceable; see docs
                    
-  command        ::= "def" name string          // define macro-name, macro-value
+  command-body   ::= "def" name string          // define macro-name, macro-value
                    | "include" string           // include path
                    | "snippet" name string      // include snippet id, path
                    | "if" if_body
-                   | macro-call
-                 
+                   | "env" name                 // push value of environmental
+                                                // variable name if found, otherwise warn
+                   | name                       // macro-call; if name is a macro-name,
+                                                // push macro-value, otherwise warn
+               
   if_body        ::= expression text
                      {command-start "elif" expression text}
                      [command-start "else" text]
                      command-start "endif"
-
-  macro-call     ::= "(" name ")"               // push value of environmental
-                                                // variable name if found,
-                                                // otherwise push command
-                   | name                       // if name is a macro-name, push
-                                                // macro-value, otherwise
-                                                // push command
-                 
-  command-start  ::= "$"                        // replaceable; see docs
-                 
-  command-end    ::= ";"                        // replaceable; see docs
                  
   literal        ::= {character}                // characters have given value
                                                 // alphabetic terminated by non-alphabetic 
