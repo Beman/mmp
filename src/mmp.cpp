@@ -52,27 +52,23 @@ namespace
   int             error_count = 0;
 
   const string    default_command_start("$");
-  string          in_file_command_start("$");
-  const string    default_macro_start("$");
-  const string    default_macro_end(";");
+  const string    default_command_end(";");
   const bool      no_macro_check = false;
 
   std::ofstream   out;
  
-  enum  text_termination { text_end, elif_clause, else_clause, endif_clause };
+  enum  text_terminator { text_end, elif_clause, else_clause, endif_clause };
 
   struct context
   {
     string                  path;
     int                     line_number;
     string                  content;
-    string::const_iterator  cur;            // current position
-    string::const_iterator  end;            // past-the-end
-    string                  command_start;  // command start marker; !empty()
-    string                  command_end;    // command end marker; may be empty()
-    string                  macro_start_;   // !empty()
-    string                  macro_end_;     // !empty()
-    string                  snippet_id;     // may be empty()
+    string::const_iterator  cur;             // current position
+    string::const_iterator  end;             // past-the-end
+    string                  command_start_;  // command start marker; !empty()
+    string                  command_end_;    // command end marker; !empty()
+    string                  snippet_id;      // may be empty()
   };
 
   typedef std::stack<context, std::list<context> > stack_type;
@@ -81,7 +77,7 @@ namespace
   typedef std::map<string, string> macro_map;
   macro_map macro;
   
-  text_termination text_(bool side_effects = true);
+  text_terminator text_(bool side_effects = true);
   bool expression_();
   string name_();
   void macro_call_();
@@ -141,24 +137,8 @@ namespace
 
  inline bool is_command_start()
  {
-   return std::memcmp(&*state.top().cur, state.top().command_start.c_str(),
-     state.top().command_start.size()) == 0;
- }
-
-//--------------------------------  is_macro_start  -----------------------------------//
-
- inline bool is_macro_start()
- {
-   return std::memcmp(&*state.top().cur, state.top().macro_start_.c_str(),
-     state.top().macro_start_.size()) == 0;
- }
-
-//---------------------------------  is_macro_end  ------------------------------------//
-
- inline bool is_macro_end()
- {
-   return std::memcmp(&*state.top().cur, state.top().macro_end_.c_str(),
-     state.top().macro_end_.size()) == 0;
+   return std::memcmp(&*state.top().cur, state.top().command_start_.c_str(),
+     state.top().command_start_.size()) == 0;
  }
 
  //-----------------------------  advance_if_operator  ---------------------------------//
@@ -195,9 +175,7 @@ namespace
 
   bool new_context(const string& path,
     const string& command_start = default_command_start,
-    const string& command_end = string(),
-    const string& macro_start = default_macro_start,
-    const string& macro_end = default_macro_end
+    const string& command_end = default_command_end
     )  // true if succeeds
   {
     state.push(context());
@@ -211,16 +189,14 @@ namespace
     ++state.top().line_number;
     state.top().cur = state.top().content.cbegin();
     state.top().end = state.top().content.cend();
-    state.top().command_start = command_start;
-    state.top().command_end = command_end;
-    state.top().macro_start_ = macro_start;
-    state.top().macro_end_ = macro_end;
+    state.top().command_start_ = command_start;
+    state.top().command_end_ = command_end;
     return true;
   }
 
 //--------------------------------  push_content  --------------------------------------//
 
-  void push_content(const string& name, const string& content)
+  void push_content(const string& name, int line_number, const string& content)
   {
     if (verbose)
       cout << "pushing " << name << " with content \"" << content << '"' <<endl;
@@ -228,12 +204,10 @@ namespace
     context cx;
 
     cx.path = name;
-    cx.line_number = 1;
+    cx.line_number = line_number;
     cx.content = content;
-    cx.command_start = state.top().command_start; 
-    cx.command_end = state.top().command_end; 
-    cx.macro_start_ = state.top().macro_start_; 
-    cx.macro_end_ = state.top().macro_end_;
+    cx.command_start_ = state.top().command_start_; 
+    cx.command_end_ = state.top().command_end_; 
 
     state.push(cx);
     state.top().cur = state.top().content.cbegin();
@@ -248,7 +222,7 @@ namespace
     state.top().snippet_id = id;
 
     // find the start of the id command
-    string command(state.top().command_start + "id " + id + "=");
+    string command(state.top().command_start_ + "id " + id + "=");
     string::size_type pos = state.top().content.find(command);
     if (pos == string::npos)
     {
@@ -261,10 +235,10 @@ namespace
     advance(pos + command.size(), no_macro_check);
 
     // find the end of the snippet
-    pos = state.top().content.find(state.top().command_start+"endid", pos);
+    pos = state.top().content.find(state.top().command_start_+"endid", pos);
     if (pos == string::npos)
     {
-      error("Could not find " + state.top().command_start + "endid for snippet "
+      error("Could not find " + state.top().command_start_ + "endid for snippet "
         + id + " in " + state.top().path);
       state.top().cur = state.top().end;
       return;
@@ -635,7 +609,7 @@ string macro_name()
 
     // expression text
     bool true_done = expression_();
-    text_termination terminated_by = text_(true_done && side_effects);
+    text_terminator terminated_by = text_(true_done && side_effects);
 
     // {command-start "elif" command-end expression text}
     for (; terminated_by == elif_clause;)
@@ -699,10 +673,10 @@ string macro_name()
     {
       if (side_effects)
       {
-        out << state.top().command_start << whitespace << command;
+        out << state.top().command_start_ << whitespace << command;
 
         if (log_input)
-          cout << "  Output: " << state.top().command_start << whitespace << command
+          cout << "  Output: " << state.top().command_start_ << whitespace << command
                << endl;
       }
       return;
@@ -713,54 +687,99 @@ string macro_name()
     skip_whitespace(); 
   }
 
-//------------------------------------- text_  -----------------------------------------//
+//-----------------------------------  literal_  ---------------------------------------//
 
-  text_termination text_(bool side_effects)
+  bool literal_(const string& value)  // true if literal found
+  {
+    BOOST_ASSERT(!value.empty());
+
+    if (state.top().cur == state.top().end || value[0] != *state.top().cur)
+      return false;
+    
+    string::const_iterator it = value.cbegin();
+
+    for(; it != value.cend() && *it == *state.top().cur; ++it, advance())
+      {}
+
+    if (it == value.cend()
+        && (!std::isalpha(value[0]) || !std::isalpha(*state.top().cur)))
+      return true;
+
+    // literal not found, so push whatever was found
+    push_content(state.top().path, state.top().line_number,
+      value.substr(0, std::distance(value.cbegin(), it)));
+    return false;
+  }
+
+//----------------------------------  character_  --------------------------------------//
+
+  bool character_(bool side_effects)  // false if end-of-text block reached
+  {
+    if (state.top().cur == state.top().end)
+      return false;
+
+    while (literal_(state.top().command_start_))
+    {
+      skip_whitespace();
+      command_element_(side_effects);
+    }
+    return true;
+  }
+
+//-------------------------------------  text_  ----------------------------------------//
+
+  text_terminator text_(bool side_effects)
   {
     BOOST_ASSERT(!state.empty());  // failure indicates program logic error
 
-    //if (verbose)
-    //  cout << "Processing " << state.top().path << "...\n";
-
-    for(; state.top().cur != state.top().end;)
+    while (character_(side_effects))
     {
-      if (is_command_start())
+      if (side_effects)
       {
-        advance(state.top().command_start.size(), no_macro_check);
+        out << *state.top().cur;;
 
-        string whitespace;  // in case this isn't really a command
-
-        for (; state.top().cur != state.top().end && std::isspace(*state.top().cur);
-            advance())
-          whitespace += *state.top().cur;
-
-        string command(name_());
-
-        // text_ is terminated by an elif, else, or endif
-        if (command == "elif")
-          return elif_clause;
-        else if (command == "else")
-          return else_clause;
-        else if (command == "endif")
-          return endif_clause;
-        else
-         command_(whitespace, command, side_effects);
+        if (log_input)
+          cout << "  Output: " << *state.top().cur << endl;
       }
-      else  // character
-      {
-        if (side_effects)
-        {
-          out << *state.top().cur;;
-
-          if (log_input)
-            cout << "  Output: " << *state.top().cur << endl;
-        }
-        advance();
-      }
+      advance();
     }
 
-    //if (verbose)
-    //  cout << "  " << state.top().path << " complete\n";
+    //for(; state.top().cur != state.top().end;)
+    //{
+    //  if (is_command_start())
+    //  {
+    //    advance(state.top().command_start_.size(), no_macro_check);
+
+    //    string whitespace;  // in case this isn't really a command
+
+    //    for (; state.top().cur != state.top().end && std::isspace(*state.top().cur);
+    //        advance())
+    //      whitespace += *state.top().cur;
+
+    //    string command(name_());
+
+    //    // text_ is terminated by an elif, else, or endif
+    //    if (command == "elif")
+    //      return elif_clause;
+    //    else if (command == "else")
+    //      return else_clause;
+    //    else if (command == "endif")
+    //      return endif_clause;
+    //    else
+    //     command_(whitespace, command, side_effects);
+    //  }
+    //  else  // character
+    //  {
+    //    if (side_effects)
+    //    {
+    //      out << *state.top().cur;;
+
+    //      if (log_input)
+    //        cout << "  Output: " << *state.top().cur << endl;
+    //    }
+    //    advance();
+    //  }
+    //}
 
     BOOST_ASSERT(state.size() == 1);  // failure indicates program logic error
     return text_end;
