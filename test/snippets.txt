@@ -1,0 +1,6 @@
+$id bad=
+fail
+$endid
+$id good=
+pass
+$endid

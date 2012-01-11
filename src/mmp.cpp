@@ -58,8 +58,6 @@ namespace
   const bool      no_macro_check = false;
 
   std::ofstream   out;
- 
-  enum  text_termination { text_end, elif_clause, else_clause, endif_clause };
 
   struct context
   {
@@ -81,7 +79,7 @@ namespace
   typedef std::map<string, string> macro_map;
   macro_map macro;
   
-  text_termination text_(bool side_effects = true);
+  void text_(bool side_effects = true);
   bool expression_();
   string name_();
   void macro_call_();
@@ -143,6 +141,36 @@ namespace
  {
    return std::memcmp(&*state.top().cur, state.top().command_start.c_str(),
      state.top().command_start.size()) == 0;
+ }
+
+ //----------------------------------  is_command  -------------------------------------//
+
+ bool is_command(const char* x)
+ {
+   if (!is_command_start())
+     return false;
+
+   string::const_iterator it(state.top().cur + state.top().command_start.size());
+
+   for (; it != state.top().end && std::isspace(*it); ++it) {}
+
+   string s;
+
+   for (; it != state.top().end && std::isalpha(*it); ++it)
+     s += *it;
+
+   return s == x;
+ }
+
+ //----------------------------------  skip_command  -----------------------------------//
+
+ void skip_command()
+ {
+   advance(state.top().command_start.size(), no_macro_check);
+   for (; state.top().cur != state.top().end && std::isspace(*state.top().cur);
+     advance(1, no_macro_check)) {}
+   for (; state.top().cur != state.top().end && std::isalpha(*state.top().cur);
+     advance(1, no_macro_check)) {}
  }
 
 //--------------------------------  is_macro_start  -----------------------------------//
@@ -358,7 +386,6 @@ namespace
   --------------------------------------------------------------------------------------
 
   text          ::= { command-start command {whitespace}
-                    | command-start            // treated as ordinary character(s)
                     | character
                     }
 
@@ -645,28 +672,39 @@ string macro_name()
 
     // expression text
     bool true_done = expression_();
-    text_termination terminated_by = text_(true_done && side_effects);
+    text_(true_done && side_effects);
 
     // {command-start "elif" command-end expression text}
-    for (; terminated_by == elif_clause;)
+    while (is_command("elif"))
     {
-      terminated_by = text_((!true_done && (true_done = expression_())) && side_effects);
+      skip_command();
+      text_((!true_done && (true_done = expression_())) && side_effects);
     }
 
     // [command-start "else" command-end text]
-    if (terminated_by == else_clause)
-      terminated_by = text_(!true_done && side_effects);
+    if (is_command("else"))
+    {
+      skip_command();
+      text_(!true_done && side_effects);
+    }
 
     // command-start "endif" command-end]
-    if (terminated_by != endif_clause)
+    if (is_command("endif"))
+    {
+      skip_command();
+    }
+    else
       error("expected \"endif\" to close \"if\" begun on line "
         + lexical_cast<string>(if_line_n));
   }
 
 //-----------------------------------  command_  ---------------------------------------//
 
-  void command_(const string& whitespace, const string& command, bool side_effects) 
+  void command_(bool side_effects) 
   {
+    advance(state.top().command_start.size(), no_macro_check);
+    string command(name_());
+
     // def[ine] macro command
     if (command == "def")
     {
@@ -706,17 +744,7 @@ string macro_name()
 
     // not a command
     else
-    {
-      if (side_effects)
-      {
-        out << state.top().command_start << whitespace << command;
-
-        if (log_input)
-          cout << "  Output: " << state.top().command_start << whitespace << command
-               << endl;
-      }
-      return;
-    }
+      error(command + " is not a valid command");
 
     // bypass trailing whitespace; this has the effect of avoiding the output of
     // spurious whitespace such as a newline at the end of a command
@@ -725,7 +753,7 @@ string macro_name()
 
 //------------------------------------- text_  -----------------------------------------//
 
-  text_termination text_(bool side_effects)
+  void text_(bool side_effects)
   {
     BOOST_ASSERT(!state.empty());  // failure indicates program logic error
 
@@ -735,26 +763,15 @@ string macro_name()
     for(; state.top().cur != state.top().end;)
     {
       if (is_command_start())
-      {
-        advance(state.top().command_start.size(), no_macro_check);
-
-        string whitespace;  // in case this isn't really a command
-
-        for (; state.top().cur != state.top().end && std::isspace(*state.top().cur);
-            advance())
-          whitespace += *state.top().cur;
-
-        string command(name_());
-
+      { 
         // text_ is terminated by an elif, else, or endif
-        if (command == "elif")
-          return elif_clause;
-        else if (command == "else")
-          return else_clause;
-        else if (command == "endif")
-          return endif_clause;
+        if (is_command("elif")
+          || is_command("else")
+          || is_command("endif"))
+          return;
+
         else
-         command_(whitespace, command, side_effects);
+         command_(side_effects);
       }
       else  // character
       {
@@ -762,7 +779,7 @@ string macro_name()
         {
           out << *state.top().cur;;
 
-          if (log_input)
+          if (log_output)
             cout << "  Output: " << *state.top().cur << endl;
         }
         advance();
@@ -773,7 +790,6 @@ string macro_name()
     //  cout << "  " << state.top().path << " complete\n";
 
     BOOST_ASSERT(state.size() == 1);  // failure indicates program logic error
-    return text_end;
   }
 
 }  // unnamed namespace

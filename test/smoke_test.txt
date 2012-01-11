@@ -107,4 +107,11 @@ $def FOO "$BAR;-pass"
 $FOO;
 $if $BAR; == pass pass $else fail $endif
 
+$if foo == bar
+$snippet bad "../../snippets.txt"
+$elif foo == foo
+$snippet good "../../snippets.txt"
+$endif
+
+
 That's all folks!
