@@ -9,7 +9,11 @@
 <style type="text/css">
  ins {background-color:#A0FFA0}
  del {background-color:#FFA0A0}
- body { font-family: sans-serif; }
+ body  {
+        font-family: sans-serif;
+        margin: 1em;
+        max-width : 8.5in;
+       }
 </style>
 </head>
 
@@ -29,21 +33,107 @@ and Christopher Strachey's
 <a href="http://comjnl.oxfordjournals.org/content/8/3/225.full.pdf+html">A 
 general purpose macrogenerator</a>.</p>
 
-<h2>Syntax</h2>
+<h2>Grammars</h2>
 
-<p>EBNF...</p>
+<p>The grammars specify how input is parsed. The notation is a variety of
+<a href="http://en.wikipedia.org/wiki/EBNF">Extended Backus–Naur Form (EBNF)</a>. 
+&quot;<code>::=</code>&quot; denotes production rules, &quot;<code>|</code>&quot; denotes alternatives, &quot;<code>{...}</code>&quot; denotes zero 
+or more repetitions, &quot;<code>[...]</code>&quot; denotes optional constructions.</p>
 
-<h3>Macro call syntax</h3>
+<h3>Input text grammar</h3>
 
-<p>As input text is processed, it is first checked for macro calls, and the 
-macro call replaced by the macro's definition. The process is recursive; a macro 
+<p>Input text is parsed according to this input text grammar:</p>
+
+<blockquote>
+<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse"
+ bgcolor="#CCE6FF" bordercolor="#111111" width="90%">
+  <tr>
+    <td>
+<pre>  
+  text          ::= { command-start command command-end
+                    | character
+                    }
+    
+  //  whitespace permitted between elements unless otherwise specified
+
+  command       ::= &quot;def&quot; name string          // name shall not be a keyword
+                  | &quot;include&quot; string           // string is filename
+                  | &quot;snippet&quot; name string      // name is id, string is filename
+                  | &quot;if&quot; if_body
+
+  command-end   ::= &quot;;&quot;                     // replaceable; see docs
+                  | whitespace {whitespace}
+
+  if_body       ::= expression text
+                    {command-start &quot;elif&quot; expression text}
+                    [command-start &quot;else&quot; text]
+                    command-start &quot;endif&quot;
+
+  command-start ::= &quot;&quot;                         // replaceable; see docs
+
+  string        ::= name
+                  | &quot;&quot;&quot;{s-char}&quot;&quot;&quot;
+
+  s-char        ::= &quot;\&quot;&quot; | &quot;\r&quot; | &quot;\n&quot;
+                  | character                   // unescaped &quot; not allowed
+
+  name          ::= name-char{name-char}
+
+  name-char     ::= character      // restricted to A-Z, a-z, 0-9, and underscore
+
+  primary_expr  ::= string &quot;==&quot; string
+                  | string &quot;!=&quot; string
+                  | string &quot;&lt;&quot;   string
+                  | string &quot;&lt;=&quot; string
+                  | string &quot;&gt;&quot; string
+                  | string &quot;&gt;=&quot; string
+                  | &quot;(&quot; expression &quot;)&quot;
+  
+  and-expr      ::= primary_expr {&quot;&amp;&amp;&quot; primary_expr}
+                         
+  expression    ::= and-expr {&quot;||&quot; and-expr}</pre>
+    </td>
+  </tr>
+</table>
+</blockquote>
+
+<h3>Macro call grammar</h3>
+
+<p>As each&nbsp; <code>character</code> in the input text grammar is processed, it is  checked for 
+a macro call, and if found the 
+macro call is replaced by the macro's definition. The process is recursive; a macro 
 definition may itself include macro calls.</p>
 
-<h3>Command syntax</h3>
+<blockquote>
+<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse"
+ bgcolor="#CCE6FF" bordercolor="#111111" width="90%">
+  <tr>
+    <td>
+    <pre> 
+//  no whitespace permitted between elements
 
-<p>Input text may contain embedded commands.</p>
+  macro-call    ::= macro-start macro-body
+ 
+  macro-body    ::= macro-end                      // null macro, pushes macro-start
+                  | &quot;(&quot; macro-name &quot;)&quot;  macro-end  // pushes value of macro-name
+                                                   // environmental variable if found,
+                                                   // otherwise pushes macro-call
+                  | macro-name  [macro-end]        // if no macro-end, pushes macro-call
+                                                   // if macro-name defined, pushes
+                                                   // what it is defined as,
+                                                   // otherwise pushes macro-call
 
-<h3>Snippet syntax</h3>
+  macro-start   ::= &quot;&quot;                            // replaceable; see docs
+                  
+  macro-end     ::= &quot;;&quot;                            // replaceable; see docs
+
+  macro_name    ::= name_char {name_char}</pre>
+    </td>
+  </tr>
+</table>
+</blockquote>
+
+<h3>Snippet grammar</h3>
 
 <p>When a snippet command includes a file, only the portion identified by the 
 snippet syntax is processed.</p>
@@ -51,19 +141,25 @@ snippet syntax is processed.</p>
 <blockquote>
   <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse" bordercolor="#111111">
     <tr>
-      <td bgcolor="#CCE6FF"><pre>
-
-  //  whitespace allowed only in {character}
-
-  snippet    ::= command_start "id " name "=" {character} command-start "endid" </pre></td>
+      <td bgcolor="#CCE6FF">
+      <pre>  snippet    ::= command_start &quot;id &quot; name &quot;=&quot; {character} command-start &quot;endid&quot; </pre>
+      </td>
     </tr>
   </table>
+</blockquote>
+
+<h2>Command line</h2>
+<blockquote>
+  <pre>Usage: mmp [option...] input-path output-path
+  option: name=value   Define macro
+          -verbose     Report progress during processing
+Example: mmp -verbose VERSION=1.5 &quot;DESC=Beta 1&quot; index.html ..index.html</pre>
 </blockquote>
 
 <hr>
 
 <p><font size="2">Last revised:
-<!--webbot bot="Timestamp" S-Type="EDITED" S-Format="%d %B %Y" startspan -->21 December 2011<!--webbot bot="Timestamp" endspan i-checksum="38776" --></font></p>
+<!--webbot bot="Timestamp" S-Type="EDITED" S-Format="%d %B %Y" startspan -->15 July 2012<!--webbot bot="Timestamp" endspan i-checksum="18785" --></font></p>
 <p><font size="2">© Beman Dawes 2011</font></p>
 <p><font size="2">Licensed under the </font>
 <a href="http://www.boost.org/LICENSE_1_0.txt"><font size="2">Boost Software 
