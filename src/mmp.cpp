@@ -53,6 +53,7 @@ namespace
 
   const string    default_command_start("$");
   string          in_file_command_start("$");
+  const string    default_command_end(";");
   const string    default_macro_start("$");
   const string    default_macro_end(";");
   const bool      no_macro_check = false;
@@ -142,6 +143,13 @@ namespace
    return std::memcmp(&*state.top().cur, state.top().command_start.c_str(),
      state.top().command_start.size()) == 0;
  }
+//---------------------------------  is_command_end  -----------------------------------//
+
+ inline bool is_command_end()
+ {
+   return std::memcmp(&*state.top().cur, state.top().command_end.c_str(),
+     state.top().command_end.size()) == 0;
+ }
 
  //----------------------------------  is_command  -------------------------------------//
 
@@ -223,7 +231,7 @@ namespace
 
   bool new_context(const string& path,
     const string& command_start = default_command_start,
-    const string& command_end = string(),
+    const string& command_end = default_command_end,
     const string& macro_start = default_macro_start,
     const string& macro_end = default_macro_end
     )  // true if succeeds
@@ -381,31 +389,34 @@ namespace
   //  In certain file contexts, a command-start is only recognized inside a comment,
   //  where the comment syntax is specific for that file type.
 
-  //  whitespace allowed between elements unless otherwise specified
-    
   --------------------------------------------------------------------------------------
 
-  text          ::= { command-start command {whitespace}
+  text          ::= { command-start command command-end
                     | character
                     }
+    
+  //  whitespace permitted between elements unless otherwise specified
 
   command       ::= "def" name string          // name shall not be a keyword
                   | "include" string           // string is filename
                   | "snippet" name string      // name is id, string is filename
                   | "if" if_body
 
+  command-end   ::= ";"                     // replaceable; see docs
+                  | whitespace {whitespace}
+
   if_body       ::= expression text
                     {command-start "elif" expression text}
                     [command-start "else" text]
                     command-start "endif"
 
-  command-start ::= "$"                        // replaceable; see docs
+  command-start ::= "$"                         // replaceable; see docs
 
   string        ::= name
                   | """{s-char}"""
 
   s-char        ::= "\"" | "\r" | "\n"
-                  | character                 // " not allowed
+                  | character                   // " not allowed
 
   name          ::= name-char{name-char}
 
@@ -429,7 +440,7 @@ namespace
 
   $id snippet=
 
-  //  whitespace allowed only in {character}
+  //  whitespace permitted only in {character}
 
   snippet    ::= command_start "id " name "=" {character} command-start "endid" $endid
 
@@ -688,10 +699,11 @@ string macro_name()
       text_(!true_done && side_effects);
     }
 
-    // command-start "endif" command-end]
+    // command-start "endif"
     if (is_command("endif"))
     {
-      skip_command();
+       advance(state.top().command_start.size(), no_macro_check);
+       advance(sizeof("endif")-1, no_macro_check);
     }
     else
       error("expected \"endif\" to close \"if\" begun on line "
@@ -745,10 +757,6 @@ string macro_name()
     // not a command
     else
       error(command + " is not a valid command");
-
-    // bypass trailing whitespace; this has the effect of avoiding the output of
-    // spurious whitespace such as a newline at the end of a command
-    skip_whitespace(); 
   }
 
 //------------------------------------- text_  -----------------------------------------//
@@ -770,9 +778,14 @@ string macro_name()
           || is_command("endif"))
           return;
 
+        command_(side_effects);
+        if (state.top().cur == state.top().end)
+          break;
+        if (is_command_end())
+          advance(state.top().command_end.size(), false);
         else
-         command_(side_effects);
-      }
+          skip_whitespace();
+     }
       else  // character
       {
         if (side_effects)

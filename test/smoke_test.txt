@@ -113,5 +113,14 @@ $elif foo == foo
 $snippet good "../../snippets.txt"
 $endif
 
+Spacing seems to be an issue
+$def MEOW "meow"
+Meow says xxx$MEOW;xxx
+$def MEOW meow
+Meow says xxx$MEOW;xxx
+
+xxx$if a == b error $endif;xxx
+xxx$if a == "a"ok$endif;xxx
+xxx$if a == "a"ok$endif  ;xxx
 
 That's all folks!
